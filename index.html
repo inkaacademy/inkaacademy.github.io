@@ -12,6 +12,10 @@
     --navy:#0b2a49; --navy2:#153a5e; --gold:#b6862c; --gold-l:#e3c274; --gold-d:#8f6a1f;
     --bg:#f4f6f9; --card:#ffffff; --ink:#182430; --muted:#586b7d; --line:#dde4ec;
     --ok:#1c7a3c; --ok-bg:#e7f2ea; --bad:#a92a25; --bad-bg:#faeae8; --warn:#8a6400; --warn-bg:#f8efd9;
+    --teal:#0f7b8a; --teal-l:#4fb3bf; --teal-bg:#e2f3f5;
+    --plum:#6a4c93; --plum-bg:#efe9f7;
+    --coral:#c1502e; --coral-bg:#fbe9e1;
+    --sky:#2f6fb0; --sky-bg:#e6eefb;
     --shadow:0 8px 28px rgba(11,42,73,.13);
     --font-sans:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     --font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
@@ -25,7 +29,10 @@
   a{color:var(--navy2)}
   :focus-visible{outline:3px solid var(--gold-l);outline-offset:2px;border-radius:4px}
 
-  header.topbar{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;border-bottom:4px solid var(--gold)}
+  header.topbar{background:
+      radial-gradient(1200px 140px at 15% -40%,rgba(227,194,116,.20),transparent 60%),
+      linear-gradient(135deg,var(--navy),var(--navy2) 60%,#0d3459);
+    color:#fff;border-bottom:4px solid var(--gold);position:relative;overflow:hidden}
   header.topbar .wrap{padding:18px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .logo{width:54px;height:54px;border-radius:10px;flex:0 0 auto;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);cursor:pointer;border:0;padding:5px;overflow:hidden}
   .logo svg,.logo img{display:block;max-width:100%;max-height:100%}
@@ -53,13 +60,13 @@
   input[type=number]{padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:.95rem;background:#fbfcfe;font-family:inherit;width:90px}
   .checkrow{display:flex;align-items:flex-start;gap:10px;margin-top:16px;font-size:.9rem;color:var(--muted)}
   .checkrow input{margin-top:3px;width:18px;height:18px;flex:0 0 auto}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--navy);color:#fff;border:0;border-radius:10px;padding:12px 22px;font-size:1rem;font-weight:600;cursor:pointer;transition:transform .05s ease,background .15s ease;min-height:44px;font-family:inherit}
-  .btn:hover{background:var(--navy2)}
-  .btn:active{transform:translateY(1px)}
-  .btn.gold{background:var(--gold);color:#fff}
-  .btn.gold:hover{background:var(--gold-d)}
-  .btn.ghost{background:transparent;color:var(--navy);border:1.5px solid var(--navy)}
-  .btn.ghost:hover{background:#eef2f8}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(155deg,var(--navy2),var(--navy));color:#fff;border:0;border-radius:10px;padding:12px 22px;font-size:1rem;font-weight:600;cursor:pointer;transition:transform .12s ease,box-shadow .15s ease,background .15s ease;min-height:44px;font-family:inherit;box-shadow:0 2px 8px rgba(11,42,73,.18)}
+  .btn:hover{background:linear-gradient(155deg,#1c4770,var(--navy2));transform:translateY(-1px);box-shadow:0 6px 16px rgba(11,42,73,.26)}
+  .btn:active{transform:translateY(1px);box-shadow:0 2px 6px rgba(11,42,73,.2)}
+  .btn.gold{background:linear-gradient(155deg,var(--gold-l),var(--gold));color:#402d08;box-shadow:0 2px 8px rgba(182,134,44,.35)}
+  .btn.gold:hover{background:linear-gradient(155deg,var(--gold),var(--gold-d));color:#fff;box-shadow:0 6px 18px rgba(182,134,44,.4)}
+  .btn.ghost{background:transparent;color:var(--navy);border:1.5px solid var(--navy);box-shadow:none}
+  .btn.ghost:hover{background:#eef2f8;box-shadow:none;transform:translateY(-1px)}
   .btn.sm{padding:8px 14px;font-size:.85rem;min-height:36px}
   .btnrow{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
 
@@ -236,6 +243,46 @@
   .admin-stats div{flex:1;min-width:130px;background:#f1f5f9;border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-align:center}
   .admin-stats b{display:block;font-size:1.7rem;font-family:var(--font-serif);color:var(--navy);line-height:1.1}
   .admin-stats span{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+
+  /* ---- module picker: colorful card grid ---- */
+  .pick-top{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:6px 0 18px}
+  .ring{--pct:0;width:74px;height:74px;border-radius:50%;flex:0 0 auto;
+    background:conic-gradient(var(--gold) calc(var(--pct)*1%),var(--line) 0);
+    display:flex;align-items:center;justify-content:center;position:relative}
+  .ring::before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--card)}
+  .ring b{position:relative;z-index:1;font-family:var(--font-serif);font-size:1.05rem;color:var(--navy)}
+  .pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:4px}
+  .pickcard{position:relative;display:flex;flex-direction:column;gap:8px;background:var(--card);
+    border:1px solid var(--line);border-left:5px solid var(--mc,var(--navy));border-radius:12px;
+    padding:14px 14px 14px 16px;box-shadow:0 2px 10px rgba(11,42,73,.06);transition:transform .12s ease,box-shadow .12s ease}
+  .pickcard:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(11,42,73,.14)}
+  .pickcard .pc-top{display:flex;align-items:center;gap:10px}
+  .pickcard .pc-ico{width:36px;height:36px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;
+    justify-content:center;font-size:1.15rem;background:var(--bg);
+    background:color-mix(in srgb,var(--mc,var(--navy)) 16%,#fff)}
+  .pickcard .pc-code{font-family:var(--font-mono);font-size:.72rem;color:var(--muted);font-weight:700;letter-spacing:.4px}
+  .pickcard .pc-name{font-weight:600;font-size:.92rem;color:var(--ink);line-height:1.3}
+  .pickcard .pc-st{align-self:flex-start;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:99px}
+  .pickcard .pc-st.todo{background:var(--bg);color:var(--muted)}
+  .pickcard .pc-st.pass{background:var(--ok-bg);color:var(--ok)}
+  .pickcard .pc-st.fail{background:var(--bad-bg);color:var(--bad)}
+  .pickcard .btn{margin-top:auto;align-self:stretch}
+
+  /* ---- pass celebration banner ---- */
+  .confetti-banner{position:relative;overflow:hidden;border-radius:14px;padding:18px 20px;margin:0 0 14px;
+    background:linear-gradient(120deg,var(--teal-bg),var(--warn-bg) 55%,var(--ok-bg));
+    border:1px solid var(--line);text-align:center;font-family:var(--font-serif);font-size:1.15rem;
+    font-weight:600;color:var(--navy)}
+  .confetti-banner .cf{position:absolute;top:-14px;font-size:1.1rem;animation:cf-fall 2.6s linear infinite;opacity:.9}
+  @keyframes cf-fall{0%{transform:translateY(-20px) rotate(0deg);opacity:0}10%{opacity:1}100%{transform:translateY(150px) rotate(280deg);opacity:0}}
+
+  /* ---- admin: per-module pass-rate chart ---- */
+  .modchart{margin:4px 0 16px;display:grid;gap:7px}
+  .mc-row{display:grid;grid-template-columns:126px 1fr 54px;align-items:center;gap:10px;font-size:.78rem}
+  .mc-row .mc-lbl{display:flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mc-track{height:10px;background:var(--bg);border-radius:99px;overflow:hidden}
+  .mc-fill{height:100%;border-radius:99px}
+  .mc-pct{font-family:var(--font-mono);font-weight:700;color:var(--muted);text-align:right}
   .searchbar{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:.95rem;background:#fbfcfe;margin-bottom:10px;font-family:inherit;color:inherit}
   .cloudline{font-size:.78rem;color:var(--muted);margin-bottom:10px}
   .cloudline.err{color:var(--bad);font-weight:600}
@@ -659,6 +706,20 @@ var SYLLABUS = {
    "Hydraulic system and hydraulic oil specification",
    "Routine maintenance programme and dry-dock preparation"]}
 };
+
+/* Renk/ikon eşlemesi — sadece görsel (module picker kartları, modül rozetleri).
+   Değerlendirme mantığını etkilemez. */
+var MODICON = {
+  "01":{ic:"🔐",c:"var(--teal)"},  "02":{ic:"🦺",c:"var(--ok)"},
+  "03":{ic:"🔎",c:"var(--plum)"},  "04":{ic:"🧠",c:"var(--coral)"},
+  "05":{ic:"😴",c:"#5b6ee1"},      "06":{ic:"🌱",c:"#3f9142"},
+  "07":{ic:"📋",c:"var(--sky)"},   "08":{ic:"⚓",c:"var(--gold-d)"},
+  "09":{ic:"🧊",c:"#2596be"},      "10":{ic:"❄️",c:"#1f6f93"},
+  "11":{ic:"🎤",c:"#a3315c"},      "12":{ic:"💬",c:"#8a3f6b"},
+  "13":{ic:"📦",c:"#946b2d"},      "14":{ic:"🚪",c:"#4a5568"}
+};
+function modIcon(code){ return (MODICON[code]||{}).ic || "📘"; }
+function modColor(code){ return (MODICON[code]||{}).c || "var(--navy)"; }
 
 var CFG_DEFAULT = {
   company:"INKA ACADEMY",
@@ -1446,25 +1507,28 @@ function renderPick(){
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
   var t=T(), mods=MODULES();
   var doneCount=0, passCount=0;
-  var rows=mods.map(function(m,i){
-    var r=state.results[i], st, col, btn;
+  var cards=mods.map(function(m,i){
+    var r=state.results[i], stKey, stTxt, ico=modIcon(m.code), col=modColor(m.code);
     if(r){ doneCount++;
-      if(r.passed){ passCount++; st=t.pickPassed; col="background:var(--ok-bg);color:var(--ok)"; }
-      else { st=t.pickFailed; col="background:var(--bad-bg);color:var(--bad)"; }
-    } else { st=t.pickTodo; col="background:var(--bg);color:var(--muted)"; }
-    btn='<button class="btn sm'+(r&&r.passed?" ghost":"")+'" data-mi="'+i+'">'+(r? t.pickRetry : t.pickStart)+'</button>';
-    return '<tr>'+
-      '<td style="white-space:nowrap;padding:8px 10px"><b>'+t.moduleOf(m.code)+'</b></td>'+
-      '<td style="padding:8px 10px">'+esc(m.name)+'</td>'+
-      '<td style="padding:8px 10px"><span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:.75rem;font-weight:600;'+col+'">'+st+'</span></td>'+
-      '<td style="text-align:right;padding:8px 10px">'+btn+'</td></tr>';
+      if(r.passed){ passCount++; stKey="pass"; stTxt="✅ "+t.pickPassed; }
+      else { stKey="fail"; stTxt="❌ "+t.pickFailed; }
+    } else { stKey="todo"; stTxt="⏳ "+t.pickTodo; }
+    var btn='<button class="btn sm'+(r&&r.passed?" ghost":"")+'" data-mi="'+i+'">'+(r? t.pickRetry : t.pickStart)+'</button>';
+    return '<div class="pickcard" style="--mc:'+col+'">'+
+      '<div class="pc-top"><div class="pc-ico">'+ico+'</div>'+
+      '<div><div class="pc-code">'+t.moduleOf(m.code)+'</div><div class="pc-name">'+esc(m.name)+'</div></div></div>'+
+      '<span class="pc-st '+stKey+'">'+stTxt+'</span>'+btn+'</div>';
   }).join("");
+  var pct = mods.length ? Math.round(passCount/mods.length*100) : 0;
   app.innerHTML='<div class="card">'+
-    '<h2 style="margin-bottom:2px">'+t.pickTitle+'</h2>'+
-    '<p class="lead" style="font-size:.9rem">'+t.pickLead+'</p>'+
-    '<p style="margin:.3rem 0 1rem;color:var(--muted);font-size:.9rem">'+t.pickProgress(passCount, mods.length)+
-      (doneCount>passCount?' · '+t.pickFailNote(doneCount-passCount):'')+'</p>'+
-    '<div style="overflow-x:auto"><table class="rec pick-table" style="width:100%"><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="pick-top">'+
+      '<div class="ring" style="--pct:'+pct+'"><b>'+pct+'%</b></div>'+
+      '<div><h2 style="margin-bottom:2px">'+t.pickTitle+'</h2>'+
+      '<p class="lead" style="font-size:.9rem;margin:0">'+t.pickLead+'</p>'+
+      '<p style="margin:.3rem 0 0;color:var(--muted);font-size:.9rem">'+t.pickProgress(passCount, mods.length)+
+        (doneCount>passCount?' · '+t.pickFailNote(doneCount-passCount):'')+'</p></div>'+
+    '</div>'+
+    '<div class="pickgrid">'+cards+'</div>'+
     '<div class="btnrow" style="margin-top:16px">'+
       '<button class="btn gold" id="pkFinish">'+t.pickFinish+'</button>'+
     '</div></div>';
@@ -1487,7 +1551,7 @@ function renderDeck(mi){
     '<div style="position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;padding:0 12px;box-sizing:border-box">'+
     '<div class="card" style="max-width:1360px;margin:20px auto 0">'+renderStepper()+
     (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost" id="deckBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
-    '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
+    '<span class="chip" style="background:'+modColor(m.code)+';color:#fff">'+modIcon(m.code)+' '+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin:10px 0 2px">'+esc(m.name)+'</h2>'+
     '<p style="margin:.2rem 0 10px;color:var(--muted);font-size:.9rem">'+t.deckLead+'</p>'+
     '<div style="position:relative;background:#f0f2f5;border:1px solid var(--line);border-radius:10px;overflow:hidden">'+
@@ -1563,7 +1627,7 @@ function renderModule(mi){
 
   var html='<div class="card">'+renderStepper()+
     (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost no-print" id="modBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
-    '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
+    '<span class="chip" style="background:'+modColor(m.code)+';color:#fff">'+modIcon(m.code)+' '+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin-top:10px">'+esc(m.name)+'</h2>'+
     '<div class="progress-outer"><div class="progress-bar"><div class="progress-fill" id="pf"></div></div>'+
       '<div class="progress-meta">'+
@@ -1867,7 +1931,11 @@ function renderSummary(){
       '<button class="btn sm ghost" id="expDl">'+t.exportDl+'</button>'+
     '</div></div>';
 
-  app.innerHTML='<div class="card"><h2>'+t.resultTitle+'</h2>'+
+  var celebrate = allPass ? '<div class="confetti-banner">'+
+    ['🎉','🏅','⚓','🎊','⭐'].map(function(e,i){ return '<span class="cf" style="left:'+(8+i*21)+'%;animation-delay:'+(i*0.35)+'s">'+e+'</span>'; }).join("")+
+    (lang==="en" ? "Congratulations — all modules passed!" : "Tebrikler — tüm modüller başarıyla geçildi!")+
+    '</div>' : '';
+  app.innerHTML='<div class="card"><h2>'+t.resultTitle+'</h2>'+celebrate+
     '<p class="lead">'+t.candLine(esc(state.name), extra)+'</p>'+head+
     '<table class="summary"><thead><tr><th>'+t.thNo+'</th><th>'+t.thModule+'</th><th>'+t.thCorrect+'</th><th>'+t.thStatus+'</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table>'+failNote+exportCard+actions+'</div>';
@@ -2475,6 +2543,36 @@ function adminBack(){
   if(state) render(); else renderIntro(load()&&load().phase?load():null);
   window.scrollTo(0,0);
 }
+function moduleStats(records){
+  var st={};
+  records.forEach(function(r){
+    if(!r.mods) return;
+    r.mods.forEach(function(x){
+      if(!x.start) return; /* denenmemiş modülü sayma */
+      if(!st[x.code]) st[x.code]={pass:0,total:0,name:x.name};
+      st[x.code].total++;
+      if(x.passed) st[x.code].pass++;
+    });
+  });
+  return st;
+}
+function renderModChart(liveRecs){
+  var st=moduleStats(liveRecs), t=T();
+  var codes=Object.keys(st); if(!codes.length) return "";
+  codes.sort();
+  var rows=codes.map(function(code){
+    var s=st[code], pct=s.total? Math.round(s.pass/s.total*100) : 0;
+    var barCol = pct>=80 ? "var(--ok)" : (pct>=50 ? "var(--gold)" : "var(--bad)");
+    return '<div class="mc-row">'+
+      '<span class="mc-lbl">'+modIcon(code)+' '+t.moduleOf(code)+'</span>'+
+      '<div class="mc-track"><div class="mc-fill" style="width:'+pct+'%;background:'+barCol+'"></div></div>'+
+      '<span class="mc-pct">'+pct+'% <span style="color:var(--muted);font-weight:400">('+s.pass+'/'+s.total+')</span></span>'+
+      '</div>';
+  }).join("");
+  return '<details class="note" style="padding:12px 14px"><summary style="cursor:pointer;font-weight:600;color:var(--navy)">'+
+    (lang==="en"?"Pass rate by module":"Modül bazında geçme oranı")+'</summary>'+
+    '<div class="modchart" style="margin-top:12px">'+rows+'</div></details>';
+}
 function renderAdmin(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   document.getElementById("footNote").style.display="none";
@@ -2612,6 +2710,7 @@ function renderAdmin(){
       '<div><b>'+Object.keys(uniq).length+'</b><span>'+t.admStCandidates+'</span></div>'+
       '<div><b>'+Object.keys(passU).length+'</b><span>'+t.admStPassed+'</span></div>'+
     '</div>'+
+    renderModChart(liveRecs)+
     '<input type="text" id="aSearch" class="searchbar" placeholder="'+esc(t.admSearch)+'" value="'+esc(adminSearch)+'">'+
     '<div class="filterchips">'+
       chips.map(function(f){ return '<button class="chipbtn'+(adminFilter===f[0]?" on":"")+'" data-f="'+f[0]+'">'+f[1]+'</button>'; }).join("")+
