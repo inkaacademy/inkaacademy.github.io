@@ -1465,18 +1465,19 @@ function renderDeck(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), m=MODULES()[mi];
   var minS=Math.max(0, +CFG.deckMinSec||0);
-  app.innerHTML='<div class="card">'+renderStepper()+
+  /* .wrap'in 920px sınırını aşıp TÜM kartı (başlık, sunum, onay, buton) aynı geniş ölçüde
+     hizalar — sadece sunum penceresi değil. (viewport tabanlı breakout, ekrana göre) */
+  app.innerHTML=
+    '<div style="position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;padding:0 12px;box-sizing:border-box">'+
+    '<div class="card" style="max-width:1360px;margin:20px auto 0">'+renderStepper()+
     (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost" id="deckBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
     '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin:10px 0 2px">'+esc(m.name)+'</h2>'+
     '<p style="margin:.2rem 0 10px;color:var(--muted);font-size:.9rem">'+t.deckLead+'</p>'+
-    /* .wrap 920px'i aşıp geniş, daha okunaklı bir görüntüleyici alanı açar (viewport tabanlı, ekrana göre) */
-    '<div style="position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;padding:0 12px;box-sizing:border-box">'+
-      '<div style="max-width:1360px;margin:0 auto;position:relative;background:#f0f2f5;border:1px solid var(--line);border-radius:10px;overflow:hidden">'+
-        '<div id="deckLoad" style="padding:60px;text-align:center;color:var(--muted)"><span class="spin"></span> …</div>'+
-        '<iframe id="deckFrame" title="'+esc(m.name)+'" '+
-          'style="width:100%;height:88vh;min-height:560px;border:0;display:none"></iframe>'+
-      '</div>'+
+    '<div style="position:relative;background:#f0f2f5;border:1px solid var(--line);border-radius:10px;overflow:hidden">'+
+      '<div id="deckLoad" style="padding:60px;text-align:center;color:var(--muted)"><span class="spin"></span> …</div>'+
+      '<iframe id="deckFrame" title="'+esc(m.name)+'" '+
+        'style="width:100%;height:88vh;min-height:560px;border:0;display:none"></iframe>'+
     '</div>'+
     '<div style="margin-top:10px;font-size:.82rem;color:var(--muted);display:flex;gap:14px;align-items:center;flex-wrap:wrap">'+
       '<button type="button" class="btn sm ghost" id="deckFull">⛶ '+t.deckFullscreen+'</button>'+
@@ -1486,7 +1487,7 @@ function renderDeck(mi){
     '<div class="btnrow" style="margin-top:12px">'+
       '<button class="btn gold" id="deckGo" disabled>'+t.deckStart+'</button>'+
       '<span id="deckWait" style="align-self:center;font-size:.85rem;color:var(--muted)"></span>'+
-    '</div></div>';
+    '</div></div></div>';
   resolveDeckUrl(mi, function(url){
     var fr=document.getElementById("deckFrame"), ld=document.getElementById("deckLoad"), op=document.getElementById("deckOpen");
     if(!fr) return;
