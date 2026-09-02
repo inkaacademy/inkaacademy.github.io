@@ -338,7 +338,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v2", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
+var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v3", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
@@ -649,8 +649,56 @@ var CFG_DEFAULT = {
   allowReview:true, validYears:5,
   invigilator:"Capt. Ali SEYHUN", signTitle:"TRAINING SPECIALIST", docRef:"TRN-EXAM-01 Rev.0",
   logo:"",
+  shareUrl:"https://inkaacademy.github.io/",
   modules:ALL_CODES.slice(),
-  roleModules:{},
+  /* Göreve göre modül ataması — Glory "Vessel personnel shore based training matrix" (MAN-001)
+     esas alınarak. Matriste yer alan modüller: 01-10 ve 14. Matriste OLMAYANLAR (11 Medya İlişkileri,
+     12 Medya Sorular/Cevaplar, 13 Kargo Sabitleme) ve gemi personeli DIŞINDAKİ ofis/kara görevleri
+     için atamalar mantıksal varsayımdır — Yönetici → Ayarlar'dan değiştirilebilir.
+     Listelenmeyen görev (ör. Master, Chf Off) = tüm modüller. */
+  roleModules:{
+    // ——— Güverte zabitleri ———
+    "2nd Off":["01","02","03","04","05","06","07","08","09","10","13","14"],
+    "3rd Off":["01","02","03","04","05","06","07","08","09","10","13","14"],
+    "4th Off":["01","02","03","04","05","06","07","08","09","10","13","14"],
+    // ——— Makine zabitleri ———
+    "Chf Eng":["01","02","03","04","05","06","07","10"],
+    "2nd Eng":["01","02","03","04","05","06","07","10"],
+    "3rd Eng":["01","02","03","04","05","06","07","10"],
+    "4th Eng":["01","02","03","04","05","06","07","10"],
+    // ——— Elektrik / tayfa / servis ———
+    "ETO":["04"],
+    "Bosun":["04","08","13"],
+    "AB":["04","08","13"],
+    "Deck Boy":["04","08","13"],
+    "Wiper":["04"],
+    "Cook":["04"],
+    "Stwrd":["04"],
+    "Deck Cad":["04"],
+    "Eng Cad":["04"],
+    // ——— Ofis / kara görevleri (matriste yok — varsayım: farkındalık modülleri) ———
+    "Fleet Manager":["01","04","05","06"],
+    "Fleet Superintendent":["01","04","05","06"],
+    "DPA":["01","02","03","04","05","06"],
+    "DPA Assistant":["01","02","03","04","05","06"],
+    "HSEQ Manager":["01","02","03","04","05","06"],
+    "HSEQ Assistant":["01","02","03","04","05","06"],
+    "Advisor":["01","04","05","06"],
+    "Purchasing Assistant":["01","04"],
+    "Purchasing Manager":["01","04"],
+    "Business Development Manager":["01","04"],
+    "Technical Manager":["01","03","04","05","06"],
+    "Training Superintendent":["01","02","03","04","05","06"],
+    "Training Superintendent Assistant":["01","02","03","04","05","06"],
+    "Crewing Manager":["01","04","05"],
+    "Crew Assistant":["01","04","05"],
+    "Crewing":["01","04","05"],
+    "Sickwage":["01","04"],
+    "Observer":["01","04"],
+    "Quarantine":["01","04"],
+    "Doctor":["01","04","05"],
+    "Accounting Manager":["01","04"]
+  },
   vessels:["M/V WERRATAL","M/V KASSEL","M/V ARUCAS","M/V UNITY BULK","M/V ARIANDA","M/V OCEAN DREAM","M/V İMMENSİTY"]
 };
 function loadCfg(){
@@ -770,6 +818,7 @@ var STR = {
   setInvig:"İmza sahibi (sertifikaya yazılır)",
   setSignTitle:"İmza unvanı",
   setRef:"Form / doküman no",
+  setShareUrl:"Paylaşım bağlantısı (sınav linki)",
   setLogo:"Logo",
   setLogoHint:"PNG/JPG, en çok 600 KB",
   setLogoClear:"Kaldır",
@@ -856,6 +905,10 @@ var STR = {
   roleAssigned:function(r,n){ return r+" görevi için sınav "+n+" modüldür."; },
   roleAllModules:function(n){ return "Bu görev için tüm "+n+" modül uygulanır."; },
   admDemo:"➕ Örnek (demo) kayıt",
+  admShare:"Link paylaş",
+  admShareLead:"Bu bağlantıyı sınava girecek kişilere gönderin. Açan kişi sadece sınav olur; sonuçları göremez.",
+  admShareCopy:"Bağlantıyı kopyala",
+  admShareMail:"E-posta",
   setModulesHint:"tüm adaylar için ana liste",
   setVessels:"Gemi listesi", setVesselsHint:"her satıra bir gemi — yeni gemi eklemek için satır ekleyin",
   setRoleModules:"Göreve göre modül ataması",
@@ -948,6 +1001,7 @@ var STR = {
   setInvig:"Signatory name (printed on certificates)",
   setSignTitle:"Signatory title",
   setRef:"Form / document no",
+  setShareUrl:"Share link (exam URL)",
   setLogo:"Logo",
   setLogoHint:"PNG/JPG, max 600 KB",
   setLogoClear:"Remove",
@@ -1031,6 +1085,10 @@ var STR = {
   roleAssigned:function(r,n){ return "The "+r+" exam covers "+n+" modules."; },
   roleAllModules:function(n){ return "All "+n+" modules apply for this position."; },
   admDemo:"➕ Sample (demo) record",
+  admShare:"Share link",
+  admShareLead:"Send this link to the people who will take the exam. They can only take the exam — they cannot see any results.",
+  admShareCopy:"Copy link",
+  admShareMail:"E-mail",
   setModulesHint:"master list for all candidates",
   setVessels:"Vessel list", setVesselsHint:"one vessel per line — add a line to add a new vessel",
   setRoleModules:"Module assignment by position",
@@ -2010,6 +2068,7 @@ function renderSettings(){
     '<div class="setrow"><label>'+t.setInvig+'</label><input type="text" id="sInvig" value="'+esc(CFG.invigilator)+'" style="max-width:260px"></div>'+
     '<div class="setrow"><label>'+t.setSignTitle+'</label><input type="text" id="sSignTitle" value="'+esc(CFG.signTitle||"")+'" style="max-width:260px"></div>'+
     '<div class="setrow"><label>'+t.setRef+'</label><input type="text" id="sRef" value="'+esc(CFG.docRef)+'" style="max-width:220px"></div>'+
+    '<div class="setrow"><label>'+t.setShareUrl+'</label><input type="text" id="sShareUrl" value="'+esc(CFG.shareUrl||"")+'" style="max-width:300px;font-family:var(--font-mono)"></div>'+
     '<div class="setrow"><label>'+t.setLogo+'<span class="hint">'+t.setLogoHint+'</span></label>'+
       '<span style="display:flex;gap:8px;align-items:center">'+
         '<span id="sLogoPrev" style="width:44px;height:44px;background:#fff;border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:3px">'+logoHTML(34)+'</span>'+
@@ -2102,6 +2161,7 @@ function renderSettings(){
     CFG.invigilator=document.getElementById("sInvig").value.trim();
     CFG.signTitle=document.getElementById("sSignTitle").value.trim()||CFG_DEFAULT.signTitle;
     CFG.docRef=document.getElementById("sRef").value.trim()||CFG_DEFAULT.docRef;
+    CFG.shareUrl=document.getElementById("sShareUrl").value.trim()||CFG_DEFAULT.shareUrl;
     (function(){
       var seen={}, vs=[];
       (document.getElementById("sVessels").value||"").split(/\r?\n/).forEach(function(line){
@@ -2303,11 +2363,22 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aCsvDl">'+t.admCsvDl+'</button>'+
       '<button class="btn sm ghost" id="aImport">'+t.admImport+'</button>'+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
+      '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
       '<button class="btn sm ghost" id="aPin">'+t.admChangePin+'</button>'+
       (ADMIN_UI ? '<button class="btn sm ghost" id="aSbKey">☁ Bulut anahtarı</button>' : '')+
       '<button class="btn sm ghost" id="aClear" style="border-color:var(--bad);color:var(--bad)">'+t.admClear+'</button>'+
       '<button class="btn sm" id="aBack2">'+t.backApp+'</button>'+
+    '</div>'+
+    '<div id="aShareBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:6px">'+t.admShareLead+'</div>'+
+      '<input type="text" id="aShareUrl" class="searchbar" readonly value="'+esc(CFG.shareUrl||"")+'" style="margin-bottom:8px;font-family:var(--font-mono)">'+
+      '<div class="btnrow" style="margin-top:0">'+
+        '<button class="btn sm" id="aShareCopy">📋 '+t.admShareCopy+'</button>'+
+        '<a class="btn sm ghost" id="aShareWa" target="_blank" rel="noopener">WhatsApp</a>'+
+        '<a class="btn sm ghost" id="aShareMail">'+t.admShareMail+'</a>'+
+        '<span id="aShareMsg" style="font-size:.8rem;color:var(--ok);align-self:center"></span>'+
+      '</div>'+
     '</div>'+
     '<div id="aImportBox" style="display:none;margin-top:10px">'+
       '<textarea class="logbox" id="aImportTa" placeholder="GSMR1.…" style="height:90px"></textarea>'+
@@ -2366,6 +2437,29 @@ function renderAdmin(){
     box.value=text; box.style.display="block"; box.focus(); box.select();
   };
   document.getElementById("aSettings").onclick=function(){ renderSettings(); };
+  (function(){
+    var sBtn=document.getElementById("aShare"), box=document.getElementById("aShareBox");
+    if(!sBtn||!box) return;
+    var url=(CFG.shareUrl||"").trim();
+    var msg=(lang==="tr")
+      ? "İNKA Akademi Değerlendirme Sınavı — lütfen bu bağlantıdan giriş yapın:\n"+url
+      : "INKA Academy Assessment Exam — please take it here:\n"+url;
+    var wa=document.getElementById("aShareWa"), ml=document.getElementById("aShareMail");
+    if(wa) wa.href="https://wa.me/?text="+encodeURIComponent(msg);
+    if(ml) ml.href="mailto:?subject="+encodeURIComponent(lang==="tr"?"Değerlendirme Sınavı":"Assessment Exam")+"&body="+encodeURIComponent(msg);
+    sBtn.onclick=function(){
+      box.style.display = box.style.display==="none" ? "block" : "none";
+      if(box.style.display==="block"){ var i=document.getElementById("aShareUrl"); if(i){ i.focus(); i.select(); } }
+    };
+    var cp=document.getElementById("aShareCopy");
+    if(cp) cp.onclick=function(){
+      var done=function(){ var m=document.getElementById("aShareMsg"); if(m){ m.textContent=(lang==="tr"?"Kopyalandı ✓":"Copied ✓"); setTimeout(function(){ m.textContent=""; },2500); } };
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done, function(){ var i=document.getElementById("aShareUrl"); i.focus(); i.select(); try{document.execCommand("copy");}catch(e){} done(); }); }
+        else { var i=document.getElementById("aShareUrl"); i.focus(); i.select(); try{document.execCommand("copy");}catch(e){} done(); }
+      }catch(e){}
+    };
+  })();
   var aRef=document.getElementById("aRefresh");
   if(aRef) aRef.onclick=function(){ this.textContent="…"; cloudFails=0; if(adminPoll){clearInterval(adminPoll);adminPoll=null;} refreshCloud(function(){ renderAdmin(); }); };
   document.getElementById("aPin").onclick=function(){ adminUnlocked=false; saveAdmin({}); if(adminPoll){clearInterval(adminPoll);adminPoll=null;} renderAdmin(); };
