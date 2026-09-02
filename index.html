@@ -910,6 +910,7 @@ var STR = {
   pickTodo:"Bekliyor", pickPassed:"Geçti", pickFailed:"Kaldı",
   pickStart:"Başla", pickRetry:"Tekrar dene",
   pickBack:"← Modül listesine dön",
+  modBackConfirm:"Modül listesine dönülsün mü? Bu modül henüz değerlendirilmeyecek; işaretlediğiniz cevaplar saklanır.",
   pickFinish:"Sınavı bitir · sonuçları gör",
   pickFinishConfirm:function(n){ return n+" modül henüz yapılmadı. Yine de sınavı bitirmek istiyor musunuz?"; },
   admClearConfirmCloud:"Bu YALNIZCA bu cihazdaki yerel kayıtları siler. Buluttaki kayıtlar silinmez (onları Supabase panelinden silebilirsiniz). Devam edilsin mi?",
@@ -1108,6 +1109,7 @@ var STR = {
   pickTodo:"Pending", pickPassed:"Passed", pickFailed:"Failed",
   pickStart:"Start", pickRetry:"Retry",
   pickBack:"← Back to module list",
+  modBackConfirm:"Return to the module list? This module will not be graded yet; your selected answers are kept.",
   pickFinish:"Finish exam · see results",
   pickFinishConfirm:function(n){ return n+" module(s) not done yet. Finish the exam anyway?"; },
   admClearConfirmCloud:"This clears ONLY the local records on this device. Cloud records are NOT deleted (remove those from the Supabase dashboard). Continue?",
@@ -1461,6 +1463,7 @@ function renderDeck(mi){
   var t=T(), m=MODULES()[mi];
   var minS=Math.max(0, +CFG.deckMinSec||0);
   app.innerHTML='<div class="card">'+renderStepper()+
+    (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost" id="deckBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
     '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin:10px 0 2px">'+esc(m.name)+'</h2>'+
     '<p style="margin:.2rem 0 12px;color:var(--muted);font-size:.9rem">'+t.deckLead+'</p>'+
@@ -1499,6 +1502,8 @@ function renderDeck(mi){
     state.deckDone[mi]=true; state.phase="module"; save();
     renderModule(mi); window.scrollTo(0,0);
   };
+  var dBack=document.getElementById("deckBack");
+  if(dBack) dBack.onclick=function(){ clearInterval(iv); state.phase="pick"; save(); renderPick(); window.scrollTo(0,0); };
 }
 
 /* ---------------- MODULE ---------------- */
@@ -1525,6 +1530,7 @@ function renderModule(mi){
   var answered=Object.keys(ans).length;
 
   var html='<div class="card">'+renderStepper()+
+    (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost no-print" id="modBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
     '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin-top:10px">'+esc(m.name)+'</h2>'+
     '<div class="progress-outer"><div class="progress-bar"><div class="progress-fill" id="pf"></div></div>'+
@@ -1556,6 +1562,11 @@ function renderModule(mi){
 
   buildNav(mi); updateProgress(mi);
   if(CFG.timerOn) startCountdown(mi);
+  var mBack=document.getElementById("modBack");
+  if(mBack) mBack.onclick=function(){
+    if(!confirm(t.modBackConfirm)) return;
+    stopTimer(); state.phase="pick"; save(); renderPick(); window.scrollTo(0,0);
+  };
 
   app.querySelectorAll(".q").forEach(function(qEl){
     qEl.querySelectorAll(".opt").forEach(function(optEl){
