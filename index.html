@@ -338,7 +338,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v6", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
+var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v7", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
@@ -647,6 +647,7 @@ var CFG_DEFAULT = {
   company:"INKA ACADEMY",
   passMark:14, timerOn:false, timerMin:20,
   allowReview:false, validYears:5,
+  freeOrder:true,   /* aday modülleri istediği sırayla yapabilir (1'den başlamak zorunda değil) */
   invigilator:"Capt. Ali SEYHUN", signTitle:"TRAINING SPECIALIST", docRef:"TRN-EXAM-01 Rev.0",
   logo:"",
   shareUrl:"https://inkaacademy.github.io/",
@@ -834,6 +835,7 @@ var STR = {
   setTimer:"Modül süre sınırı",
   setTimerMin:"Modül başına dakika",
   setReview:"Cevap incelemeye izin ver (yalnızca bu yönetici dosyası; paylaşılan linkte her zaman kapalı)",
+  setFreeOrder:"Serbest modül sırası (aday istediği modülden başlar)",
   setValid:"Sertifika geçerlilik süresi (yıl)",
   setInvig:"İmza sahibi (sertifikaya yazılır)",
   setSignTitle:"İmza unvanı",
@@ -902,6 +904,14 @@ var STR = {
   admDelConfirm:function(n){ return n+" kayıt silinsin mi? Buluttakiler 'silindi' olarak işaretlenir (kalıcı silmek için Supabase panelini kullanın), bu cihazdakiler tamamen silinir."; },
   admEdit:"✏️ Düzenle", admEditSave:"Kaydet", admEditCancel:"Vazgeç", admEditNote:"Değişiklikler hem bu cihaza hem buluta yazılır.",
   finalConfirm:"Bu son modül. Sınavı bitirip sonucu kaydetmek istediğinize emin misiniz?",
+  pickTitle:"Modülü seçin", pickLead:"İstediğiniz modülden başlayabilirsiniz. Sıra önemli değildir.",
+  pickProgress:function(p,tot){ return "Geçilen modül: "+p+" / "+tot; },
+  pickFailNote:function(n){ return n+" modülde kaldınız — tekrar deneyebilirsiniz"; },
+  pickTodo:"Bekliyor", pickPassed:"Geçti", pickFailed:"Kaldı",
+  pickStart:"Başla", pickRetry:"Tekrar dene",
+  pickBack:"← Modül listesine dön",
+  pickFinish:"Sınavı bitir · sonuçları gör",
+  pickFinishConfirm:function(n){ return n+" modül henüz yapılmadı. Yine de sınavı bitirmek istiyor musunuz?"; },
   admClearConfirmCloud:"Bu YALNIZCA bu cihazdaki yerel kayıtları siler. Buluttaki kayıtlar silinmez (onları Supabase panelinden silebilirsiniz). Devam edilsin mi?",
   /* per-module certificates */
   viewCerts:"🎓 Sertifikalar",
@@ -1025,6 +1035,7 @@ var STR = {
   setTimer:"Module time limit",
   setTimerMin:"Minutes per module",
   setReview:"Allow answer review (this admin file only; always off on the shared link)",
+  setFreeOrder:"Free module order (candidate starts from any module)",
   setValid:"Certificate validity (years)",
   setInvig:"Signatory name (printed on certificates)",
   setSignTitle:"Signatory title",
@@ -1091,6 +1102,14 @@ var STR = {
   admDelConfirm:function(n){ return "Delete "+n+" record(s)? Cloud rows are marked 'deleted' (use the Supabase dashboard for permanent deletion); local rows are removed entirely."; },
   admEdit:"✏️ Edit", admEditSave:"Save", admEditCancel:"Cancel", admEditNote:"Changes are written to this device and the cloud.",
   finalConfirm:"This is the last module. Finish the exam and save the result?",
+  pickTitle:"Choose a module", pickLead:"You can start with any module. The order does not matter.",
+  pickProgress:function(p,tot){ return "Modules passed: "+p+" / "+tot; },
+  pickFailNote:function(n){ return "failed "+n+" module(s) — you can retry"; },
+  pickTodo:"Pending", pickPassed:"Passed", pickFailed:"Failed",
+  pickStart:"Start", pickRetry:"Retry",
+  pickBack:"← Back to module list",
+  pickFinish:"Finish exam · see results",
+  pickFinishConfirm:function(n){ return n+" module(s) not done yet. Finish the exam anyway?"; },
   admClearConfirmCloud:"This clears ONLY the local records on this device. Cloud records are NOT deleted (remove those from the Supabase dashboard). Continue?",
   viewCerts:"🎓 Certificates",
   certsTitle:"Certificates",
@@ -1276,8 +1295,8 @@ function newState(f){
     attemptId:"A"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
     lang:lang, name:f.name, rank:f.rank, vessel:f.vessel, sicil:f.sicil, honor:true, shuffle:!!f.shuffle,
     started:new Date().toISOString(), modules:codes,
-    order:order, optOrder:optOrder, answers:answers, results:{}, mtime:{}, clock:{}, focus:focus,
-    current:0, phase:"module"
+    order:order, optOrder:optOrder, answers:answers, results:{}, mtime:{}, clock:{}, focus:focus, deckDone:{},
+    current:0, phase: CFG.freeOrder ? "pick" : "module"
   };
 }
 
@@ -1398,6 +1417,44 @@ function gotoModule(mi){
   if(needDeck(mi)){ state.phase="deck"; save(); renderDeck(mi); }
   else { state.phase="module"; save(); renderModule(mi); }
   window.scrollTo(0,0);
+}
+function backToPick(){ state.phase="pick"; delete state.retakeQueue; save(); renderPick(); window.scrollTo(0,0); }
+/* ---------------- MODÜL SEÇİMİ (serbest sıra) ---------------- */
+function renderPick(){
+  stopTimer(); certEl.style.display="none"; recEl.style.display="none";
+  var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
+  var t=T(), mods=MODULES();
+  var doneCount=0, passCount=0;
+  var rows=mods.map(function(m,i){
+    var r=state.results[i], st, col, btn;
+    if(r){ doneCount++;
+      if(r.passed){ passCount++; st=t.pickPassed; col="background:var(--ok-bg);color:var(--ok)"; }
+      else { st=t.pickFailed; col="background:var(--bad-bg);color:var(--bad)"; }
+    } else { st=t.pickTodo; col="background:var(--bg);color:var(--muted)"; }
+    btn='<button class="btn sm'+(r&&r.passed?" ghost":"")+'" data-mi="'+i+'">'+(r? t.pickRetry : t.pickStart)+'</button>';
+    return '<tr>'+
+      '<td style="white-space:nowrap;padding:8px 10px"><b>'+t.moduleOf(m.code)+'</b></td>'+
+      '<td style="padding:8px 10px">'+esc(m.name)+'</td>'+
+      '<td style="padding:8px 10px"><span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:.75rem;font-weight:600;'+col+'">'+st+'</span></td>'+
+      '<td style="text-align:right;padding:8px 10px">'+btn+'</td></tr>';
+  }).join("");
+  app.innerHTML='<div class="card">'+
+    '<h2 style="margin-bottom:2px">'+t.pickTitle+'</h2>'+
+    '<p class="lead" style="font-size:.9rem">'+t.pickLead+'</p>'+
+    '<p style="margin:.3rem 0 1rem;color:var(--muted);font-size:.9rem">'+t.pickProgress(passCount, mods.length)+
+      (doneCount>passCount?' · '+t.pickFailNote(doneCount-passCount):'')+'</p>'+
+    '<div style="overflow-x:auto"><table class="rec pick-table" style="width:100%"><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="btnrow" style="margin-top:16px">'+
+      '<button class="btn gold" id="pkFinish">'+t.pickFinish+'</button>'+
+    '</div></div>';
+  app.querySelectorAll("button[data-mi]").forEach(function(b){
+    b.onclick=function(){ gotoModule(+b.getAttribute("data-mi")); };
+  });
+  document.getElementById("pkFinish").onclick=function(){
+    var left=mods.length-doneCount;
+    if(left>0 && !confirm(t.pickFinishConfirm(left))) return;
+    state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0);
+  };
 }
 function renderDeck(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
@@ -1571,6 +1628,7 @@ function tryFinish(mi,auto){
 }
 function isLastModule(mi){
   if(state.retakeQueue){ return state.retakeQueue.indexOf(mi)===state.retakeQueue.length-1; }
+  if(CFG.freeOrder) return false;   /* serbest sırada "son modül" onayı yok — bitirme modül listesinden yapılır */
   return mi===MODULES().length-1;
 }
 function gradeModule(mi,auto){
@@ -1587,7 +1645,9 @@ function gradeModule(mi,auto){
 /* ---------------- MODULE RESULT ---------------- */
 function renderModuleResult(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
-  var t=T(), m=MODULES()[mi], r=state.results[mi], last=mi===MODULES().length-1;
+  var t=T(), m=MODULES()[mi], r=state.results[mi];
+  var freeMode = CFG.freeOrder && !state.retakeQueue;
+  var last = !freeMode && mi===MODULES().length-1;
   var html='<div class="card">'+renderStepper()+
     '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin-top:10px">'+esc(m.name)+'</h2>'+
@@ -1598,7 +1658,7 @@ function renderModuleResult(mi){
     '<span class="result-badge '+(r.passed?"pass":"fail")+'">'+(r.passed?t.passBadge:t.failBadge)+'</span>'+
     '<div class="btnrow">'+
       ((CFG.allowReview && ADMIN_UI)?'<button class="btn ghost no-print" id="btnReview">'+t.reviewShow+'</button>':'')+
-      '<button class="btn'+(last?' gold':'')+'" id="btnNext">'+(last?t.seeResults:t.nextModule)+'</button>'+
+      '<button class="btn'+(last?' gold':'')+'" id="btnNext">'+(freeMode?t.pickBack:(last?t.seeResults:t.nextModule))+'</button>'+
     '</div><div id="reviewBox" class="review" style="display:none;margin-top:18px"></div></div>';
   app.innerHTML=html;
 
@@ -1607,7 +1667,8 @@ function renderModuleResult(mi){
       var q=state.retakeQueue, pos=q.indexOf(mi), nxt=q[pos+1];
       if(nxt!=null){ gotoModule(nxt); }
       else { delete state.retakeQueue; state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
-    } else if(last){ state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
+    } else if(freeMode){ state.phase="pick"; save(); renderPick(); window.scrollTo(0,0); }
+    else if(last){ state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
     else { gotoModule(mi+1); }
   };
   var rb=document.getElementById("btnReview");
@@ -2184,6 +2245,7 @@ function renderSettings(){
     '<div class="setrow"><label for="sTimer">'+t.setTimer+'</label><label class="switch"><input type="checkbox" id="sTimer"'+(CFG.timerOn?" checked":"")+'><span></span></label></div>'+
     '<div class="setrow"><label>'+t.setTimerMin+'</label><input type="number" id="sTimerMin" min="3" max="120" value="'+CFG.timerMin+'"></div>'+
     '<div class="setrow"><label for="sReview">'+t.setReview+'</label><label class="switch"><input type="checkbox" id="sReview"'+(CFG.allowReview?" checked":"")+'><span></span></label></div>'+
+    '<div class="setrow"><label for="sFreeOrder">'+t.setFreeOrder+'</label><label class="switch"><input type="checkbox" id="sFreeOrder"'+(CFG.freeOrder?" checked":"")+'><span></span></label></div>'+
     '<div class="setrow"><label>'+t.setValid+'</label><input type="number" id="sValid" min="1" max="10" value="'+CFG.validYears+'"></div>'+
     '<div class="setrow"><label>'+t.setInvig+'</label><input type="text" id="sInvig" value="'+esc(CFG.invigilator)+'" style="max-width:260px"></div>'+
     '<div class="setrow"><label>'+t.setSignTitle+'</label><input type="text" id="sSignTitle" value="'+esc(CFG.signTitle||"")+'" style="max-width:260px"></div>'+
@@ -2287,6 +2349,7 @@ function renderSettings(){
     CFG.timerOn=document.getElementById("sTimer").checked;
     CFG.timerMin=Math.max(3,Math.min(120,+document.getElementById("sTimerMin").value||20));
     CFG.allowReview=document.getElementById("sReview").checked;
+    (function(){ var f=document.getElementById("sFreeOrder"); if(f) CFG.freeOrder=f.checked; })();
     CFG.validYears=Math.max(1,Math.min(10,+document.getElementById("sValid").value||2));
     CFG.invigilator=document.getElementById("sInvig").value.trim();
     CFG.signTitle=document.getElementById("sSignTitle").value.trim()||CFG_DEFAULT.signTitle;
@@ -2772,7 +2835,8 @@ function render(){
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
   if(!state){ renderIntro(load()); return; }
-  if(state.phase==="deck") renderDeck(state.current);
+  if(state.phase==="pick") renderPick();
+  else if(state.phase==="deck") renderDeck(state.current);
   else if(state.phase==="module"){ if(needDeck(state.current)){ state.phase="deck"; save(); renderDeck(state.current); } else renderModule(state.current); }
   else if(state.phase==="moduleResult") renderModuleResult(state.current);
   else if(state.phase==="summary") renderSummary();
