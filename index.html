@@ -338,7 +338,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v3", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
+var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v4", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
@@ -646,7 +646,7 @@ var SYLLABUS = {
 var CFG_DEFAULT = {
   company:"INKA ACADEMY",
   passMark:14, timerOn:false, timerMin:20,
-  allowReview:true, validYears:5,
+  allowReview:false, validYears:5,
   invigilator:"Capt. Ali SEYHUN", signTitle:"TRAINING SPECIALIST", docRef:"TRN-EXAM-01 Rev.0",
   logo:"",
   shareUrl:"https://inkaacademy.github.io/",
@@ -813,7 +813,7 @@ var STR = {
   setPass:"Geçme notu (doğru sayısı)",
   setTimer:"Modül süre sınırı",
   setTimerMin:"Modül başına dakika",
-  setReview:"Adayın cevapları incelemesine izin ver",
+  setReview:"Cevap incelemeye izin ver (yalnızca bu yönetici dosyası; paylaşılan linkte her zaman kapalı)",
   setValid:"Sertifika geçerlilik süresi (yıl)",
   setInvig:"İmza sahibi (sertifikaya yazılır)",
   setSignTitle:"İmza unvanı",
@@ -996,7 +996,7 @@ var STR = {
   setPass:"Pass mark (number correct)",
   setTimer:"Module time limit",
   setTimerMin:"Minutes per module",
-  setReview:"Allow candidate to review answers",
+  setReview:"Allow answer review (this admin file only; always off on the shared link)",
   setValid:"Certificate validity (years)",
   setInvig:"Signatory name (printed on certificates)",
   setSignTitle:"Signatory title",
@@ -1477,7 +1477,7 @@ function renderModuleResult(mi){
       (state.focus[mi]?' · '+t.focusChip(state.focus[mi]):'')+'</p>'+
     '<span class="result-badge '+(r.passed?"pass":"fail")+'">'+(r.passed?t.passBadge:t.failBadge)+'</span>'+
     '<div class="btnrow">'+
-      (CFG.allowReview?'<button class="btn ghost no-print" id="btnReview">'+t.reviewShow+'</button>':'')+
+      ((CFG.allowReview && ADMIN_UI)?'<button class="btn ghost no-print" id="btnReview">'+t.reviewShow+'</button>':'')+
       '<button class="btn'+(last?' gold':'')+'" id="btnNext">'+(last?t.seeResults:t.nextModule)+'</button>'+
     '</div><div id="reviewBox" class="review" style="display:none;margin-top:18px"></div></div>';
   app.innerHTML=html;
