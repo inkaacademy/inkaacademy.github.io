@@ -338,7 +338,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v5", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
+var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v6", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
@@ -651,13 +651,20 @@ var CFG_DEFAULT = {
   logo:"",
   shareUrl:"https://inkaacademy.github.io/",
   /* Her modülden ÖNCE gösterilen eğitim sunumu (PDF). Aday sunumu inceleyip onaylamadan
-     o modülün sınavına başlayamaz. Yollar sayfaya görelidir (inkaacademy.github.io/decks/..). */
+     o modülün sınavına başlayamaz. Sunum dili = uygulama dili (TR/EN). Bir dilde dosya yoksa
+     diğer dile düşer. Türkçe sunumları eklemek için decks/tr/01.pdf … yükleyin — otomatik alınır. */
   decksOn:true,
   deckMinSec:20,
-  decks:{ "01":"decks/01.pdf","02":"decks/02.pdf","03":"decks/03.pdf","04":"decks/04.pdf",
-          "05":"decks/05.pdf","06":"decks/06.pdf","07":"decks/07.pdf","08":"decks/08.pdf",
-          "09":"decks/09.pdf","10":"decks/10.pdf","11":"decks/11.pdf","12":"decks/12.pdf",
-          "13":"decks/13.pdf","14":"decks/14.pdf" },
+  decks:{
+    en:{ "01":"decks/01.pdf","02":"decks/02.pdf","03":"decks/03.pdf","04":"decks/04.pdf",
+         "05":"decks/05.pdf","06":"decks/06.pdf","07":"decks/07.pdf","08":"decks/08.pdf",
+         "09":"decks/09.pdf","10":"decks/10.pdf","11":"decks/11.pdf","12":"decks/12.pdf",
+         "13":"decks/13.pdf","14":"decks/14.pdf" },
+    tr:{ "01":"decks/tr/01.pdf","02":"decks/tr/02.pdf","03":"decks/tr/03.pdf","04":"decks/tr/04.pdf",
+         "05":"decks/tr/05.pdf","06":"decks/tr/06.pdf","07":"decks/tr/07.pdf","08":"decks/tr/08.pdf",
+         "09":"decks/tr/09.pdf","10":"decks/tr/10.pdf","11":"decks/tr/11.pdf","12":"decks/tr/12.pdf",
+         "13":"decks/tr/13.pdf","14":"decks/tr/14.pdf" }
+  },
   modules:ALL_CODES.slice(),
   /* Göreve göre modül ataması — Glory "Vessel personnel shore based training matrix" (MAN-001)
      esas alınarak. Matriste yer alan modüller: 01-10 ve 14. Matriste OLMAYANLAR (11 Medya İlişkileri,
@@ -839,7 +846,7 @@ var STR = {
   setModules:"Sınava girecek modüller",
   setDecks:"Modül öncesi eğitim sunumu zorunlu",
   setDeckMin:"Sunumda en az bekleme (saniye)",
-  setDecksHint:"Her satır: «kod | pdf yolu». Yol göreli (decks/01.pdf) ya da tam adres olabilir. Boş bırakılan modülde sunum sorulmaz.",
+  setDecksHint:"Sunum dili = uygulama dili. Her satır: «kod | pdf yolu» (decks/01.pdf veya decks/tr/01.pdf ya da tam adres). Bir dilde dosya yoksa diğer dile düşülür.",
   setLog:"Sonuç kayıtları (bu cihaz)",
   setLogEmpty:"Henüz kayıt yok.",
   setCopy:"Panoya kopyala", setCopied:"Kopyalandı ✓",
@@ -1030,7 +1037,7 @@ var STR = {
   setModules:"Modules included in the exam",
   setDecks:"Require a training deck before each module",
   setDeckMin:"Minimum dwell on deck (seconds)",
-  setDecksHint:"Each line: «code | pdf path». Path may be relative (decks/01.pdf) or absolute. A blank module skips the deck.",
+  setDecksHint:"Deck language = app language. Each line: «code | pdf path» (decks/01.pdf or decks/tr/01.pdf or absolute). If a file is missing in one language it falls back to the other.",
   setLog:"Result log (this device)",
   setLogEmpty:"No records yet.",
   setCopy:"Copy to clipboard", setCopied:"Copied ✓",
@@ -1349,18 +1356,42 @@ function renderIntro(resumable){
 }
 
 /* ---------------- EĞİTİM SUNUMU (DECK) ---------------- */
-function deckUrlFor(mi){
-  var m=MODULES()[mi]; if(!m) return "";
-  var u = CFG.decks && CFG.decks[m.code];
+function _absUrl(u){
   if(!u) return "";
   if(/^https?:\/\//i.test(u)) return u;
-  /* göreli yol: sunucuda doğrudan; yerel dosyada (file:) shareUrl ile mutlaklaştır */
   var base = (location.protocol==="file:") ? (CFG.shareUrl||"https://inkaacademy.github.io/") : "";
   if(base && !/\/$/.test(base)) base+="/";
   return base+u.replace(/^\//,"");
 }
+function deckPath(code, l){
+  var m = CFG.decks && CFG.decks[l];
+  return (m && m[code]) ? _absUrl(m[code]) : "";
+}
+function deckAnyPath(mi){
+  var m=MODULES()[mi]; if(!m) return "";
+  return deckPath(m.code, lang) || deckPath(m.code, lang==="tr"?"en":"tr");
+}
 function needDeck(mi){
-  return !!(CFG.decksOn && deckUrlFor(mi) && !(state.deckDone && state.deckDone[mi]));
+  return !!(CFG.decksOn && deckAnyPath(mi) && !(state.deckDone && state.deckDone[mi]));
+}
+/* HEAD ile hangi dil dosyasının var olduğuna bakıp callback'e verir (uygulama dili öncelikli). */
+function resolveDeckUrl(mi, cb){
+  var m=MODULES()[mi]; if(!m){ cb(""); return; }
+  var primary = deckPath(m.code, lang), alt = deckPath(m.code, lang==="tr"?"en":"tr");
+  if(location.protocol==="file:"){ cb(primary||alt||""); return; }   /* yerel: HEAD CORS'a takılır */
+  function head(u, done){
+    if(!u){ done(false); return; }
+    try{
+      var to=setTimeout(function(){ done(false); }, 3500);
+      fetch(u, {method:"HEAD"}).then(function(r){ clearTimeout(to); done(r.ok); },
+        function(){ clearTimeout(to); done(false); });
+    }catch(e){ done(false); }
+  }
+  head(primary, function(ok){
+    if(ok){ cb(primary); return; }
+    if(alt && alt!==primary) head(alt, function(ok2){ cb(ok2?alt:(primary||alt)); });
+    else cb(primary||alt||"");
+  });
 }
 function gotoModule(mi){
   state.current=mi;
@@ -1370,24 +1401,32 @@ function gotoModule(mi){
 }
 function renderDeck(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
-  var t=T(), m=MODULES()[mi], url=deckUrlFor(mi);
+  var t=T(), m=MODULES()[mi];
   var minS=Math.max(0, +CFG.deckMinSec||0);
   app.innerHTML='<div class="card">'+renderStepper()+
     '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin:10px 0 2px">'+esc(m.name)+'</h2>'+
     '<p style="margin:.2rem 0 12px;color:var(--muted);font-size:.9rem">'+t.deckLead+'</p>'+
     '<div style="position:relative;width:100%;background:#f0f2f5;border:1px solid var(--line);border-radius:10px;overflow:hidden">'+
-      '<iframe id="deckFrame" src="'+esc(url)+'#view=FitH" title="'+esc(m.name)+'" '+
-        'style="width:100%;height:78vh;min-height:420px;border:0;display:block"></iframe>'+
+      '<div id="deckLoad" style="padding:40px;text-align:center;color:var(--muted)"><span class="spin"></span> …</div>'+
+      '<iframe id="deckFrame" title="'+esc(m.name)+'" '+
+        'style="width:100%;height:78vh;min-height:420px;border:0;display:none"></iframe>'+
     '</div>'+
     '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)">'+
-      t.deckOpenNew+' <a href="'+esc(url)+'" target="_blank" rel="noopener">'+t.deckOpenLink+'</a></div>'+
+      t.deckOpenNew+' <a id="deckOpen" href="#" target="_blank" rel="noopener">'+t.deckOpenLink+'</a></div>'+
     '<label class="chk" style="display:flex;gap:10px;align-items:flex-start;margin-top:16px;cursor:pointer">'+
       '<input type="checkbox" id="deckChk" style="margin-top:3px"><span>'+t.deckConfirm+'</span></label>'+
     '<div class="btnrow" style="margin-top:12px">'+
       '<button class="btn gold" id="deckGo" disabled>'+t.deckStart+'</button>'+
       '<span id="deckWait" style="align-self:center;font-size:.85rem;color:var(--muted)"></span>'+
     '</div></div>';
+  resolveDeckUrl(mi, function(url){
+    var fr=document.getElementById("deckFrame"), ld=document.getElementById("deckLoad"), op=document.getElementById("deckOpen");
+    if(!fr) return;
+    if(url){ fr.src=url+"#view=FitH"; fr.style.display="block"; if(op) op.href=url; }
+    if(ld) ld.style.display="none";
+    if(!url && ld){ ld.textContent="—"; ld.style.display="block"; }
+  });
   var chk=document.getElementById("deckChk"), go=document.getElementById("deckGo"), wait=document.getElementById("deckWait");
   var t0=Date.now();
   function refresh(){
@@ -2165,8 +2204,12 @@ function renderSettings(){
       '<div class="setrow"><label for="sDecksOn">'+t.setDecks+'</label><label class="switch"><input type="checkbox" id="sDecksOn"'+(CFG.decksOn?" checked":"")+'><span></span></label></div>'+
       '<div class="setrow"><label>'+t.setDeckMin+'</label><input type="number" id="sDeckMin" min="0" max="600" value="'+(+CFG.deckMinSec||0)+'"></div>'+
       '<label class="hint" style="display:block;margin:4px 0">'+t.setDecksHint+'</label>'+
-      '<textarea class="logbox" id="sDecks" style="height:150px;font-family:var(--font-mono);font-size:.82rem;white-space:pre">'+
-        esc(ALL_CODES.map(function(c){ return c+" | "+((CFG.decks&&CFG.decks[c])||""); }).join("\n"))+'</textarea></div>'+
+      '<label class="fld" style="margin-top:6px">EN — English</label>'+
+      '<textarea class="logbox" id="sDecksEn" style="height:135px;font-family:var(--font-mono);font-size:.8rem;white-space:pre">'+
+        esc(ALL_CODES.map(function(c){ return c+" | "+((CFG.decks&&CFG.decks.en&&CFG.decks.en[c])||""); }).join("\n"))+'</textarea>'+
+      '<label class="fld" style="margin-top:8px">TR — Türkçe</label>'+
+      '<textarea class="logbox" id="sDecksTr" style="height:135px;font-family:var(--font-mono);font-size:.8rem;white-space:pre">'+
+        esc(ALL_CODES.map(function(c){ return c+" | "+((CFG.decks&&CFG.decks.tr&&CFG.decks.tr[c])||""); }).join("\n"))+'</textarea></div>'+
     '<div style="padding:12px 0;border-bottom:1px solid var(--line)">'+
       '<label style="font-weight:600">'+t.setRoleModules+'<span class="hint">'+t.setRoleModulesHint+'</span></label>'+
       '<select id="sRoleSel" style="margin-top:6px">'+
@@ -2260,16 +2303,18 @@ function renderSettings(){
     (function(){
       var d1=document.getElementById("sDecksOn"); if(d1) CFG.decksOn=d1.checked;
       var d2=document.getElementById("sDeckMin"); if(d2) CFG.deckMinSec=Math.max(0,Math.min(600,+d2.value||0));
-      var ta=document.getElementById("sDecks");
-      if(ta){
+      function parseDeckTa(id){
+        var ta=document.getElementById(id); if(!ta) return null;
         var map={};
         (ta.value||"").split(/\r?\n/).forEach(function(line){
           var i=line.indexOf("|"); if(i<0) return;
           var code=line.slice(0,i).trim(), url=line.slice(i+1).trim();
           if(/^\d{2}$/.test(code) && url) map[code]=url;
         });
-        CFG.decks = Object.keys(map).length ? map : {};
+        return map;
       }
+      var en=parseDeckTa("sDecksEn"), tr=parseDeckTa("sDecksTr");
+      if(en!==null || tr!==null){ CFG.decks = { en: en||{}, tr: tr||{} }; }
     })();
     var chosen=[].slice.call(document.querySelectorAll(".mchk:checked")).map(function(x){return x.value;});
     CFG.modules = chosen.length? ALL_CODES.filter(function(c){return chosen.indexOf(c)>=0;}) : ALL_CODES.slice();
