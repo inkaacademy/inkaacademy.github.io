@@ -338,7 +338,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v4", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
+var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v5", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
@@ -650,6 +650,14 @@ var CFG_DEFAULT = {
   invigilator:"Capt. Ali SEYHUN", signTitle:"TRAINING SPECIALIST", docRef:"TRN-EXAM-01 Rev.0",
   logo:"",
   shareUrl:"https://inkaacademy.github.io/",
+  /* Her modülden ÖNCE gösterilen eğitim sunumu (PDF). Aday sunumu inceleyip onaylamadan
+     o modülün sınavına başlayamaz. Yollar sayfaya görelidir (inkaacademy.github.io/decks/..). */
+  decksOn:true,
+  deckMinSec:20,
+  decks:{ "01":"decks/01.pdf","02":"decks/02.pdf","03":"decks/03.pdf","04":"decks/04.pdf",
+          "05":"decks/05.pdf","06":"decks/06.pdf","07":"decks/07.pdf","08":"decks/08.pdf",
+          "09":"decks/09.pdf","10":"decks/10.pdf","11":"decks/11.pdf","12":"decks/12.pdf",
+          "13":"decks/13.pdf","14":"decks/14.pdf" },
   modules:ALL_CODES.slice(),
   /* Göreve göre modül ataması — Glory "Vessel personnel shore based training matrix" (MAN-001)
      esas alınarak. Matriste yer alan modüller: 01-10 ve 14. Matriste OLMAYANLAR (11 Medya İlişkileri,
@@ -772,6 +780,11 @@ var STR = {
   wrongLine:function(w){return w+" yanlış · Geçme sınırı: "+CFG.passMark+" doğru";},
   passBadge:"BU MODÜLÜ GEÇTİNİZ", failBadge:"BU MODÜLDEN KALDINIZ",
   reviewShow:"Cevapları incele", reviewHide:"İncelemeyi gizle",
+  deckLead:"Bu modülün sınavına başlamadan önce eğitim sunumunu baştan sona inceleyin.",
+  deckOpenNew:"Sunum açılmıyorsa:", deckOpenLink:"yeni sekmede aç / indir",
+  deckConfirm:"Sunumun tamamını inceledim ve sınava hazırım.",
+  deckStart:"Sınava başla →",
+  deckCountdown:function(n){ return "Sunumu inceleyin — "+n+" sn"; },
   nextModule:"Sonraki modül →", seeResults:"Sonuçları gör", cont:"Devam →",
   tCorrect:"DOĞRU", tWrong:"YANLIŞ",
   correctMark:" ✔ (doğru cevap)", yourMark:" ✗ (işaretlediğiniz)",
@@ -824,6 +837,9 @@ var STR = {
   setLogoClear:"Kaldır",
   setLogoBig:"Dosya çok büyük (en çok 600 KB).",
   setModules:"Sınava girecek modüller",
+  setDecks:"Modül öncesi eğitim sunumu zorunlu",
+  setDeckMin:"Sunumda en az bekleme (saniye)",
+  setDecksHint:"Her satır: «kod | pdf yolu». Yol göreli (decks/01.pdf) ya da tam adres olabilir. Boş bırakılan modülde sunum sorulmaz.",
   setLog:"Sonuç kayıtları (bu cihaz)",
   setLogEmpty:"Henüz kayıt yok.",
   setCopy:"Panoya kopyala", setCopied:"Kopyalandı ✓",
@@ -956,6 +972,11 @@ var STR = {
   wrongLine:function(w){return w+" wrong · Pass mark: "+CFG.passMark+" correct";},
   passBadge:"MODULE PASSED", failBadge:"MODULE FAILED",
   reviewShow:"Review answers", reviewHide:"Hide review",
+  deckLead:"Study the training presentation from start to finish before starting this module's exam.",
+  deckOpenNew:"If the presentation does not load:", deckOpenLink:"open in a new tab / download",
+  deckConfirm:"I have studied the whole presentation and I am ready for the exam.",
+  deckStart:"Start exam →",
+  deckCountdown:function(n){ return "Study the presentation — "+n+"s"; },
   nextModule:"Next module →", seeResults:"See results", cont:"Continue →",
   tCorrect:"CORRECT", tWrong:"WRONG",
   correctMark:" ✔ (correct answer)", yourMark:" ✗ (your choice)",
@@ -1007,6 +1028,9 @@ var STR = {
   setLogoClear:"Remove",
   setLogoBig:"File too large (max 600 KB).",
   setModules:"Modules included in the exam",
+  setDecks:"Require a training deck before each module",
+  setDeckMin:"Minimum dwell on deck (seconds)",
+  setDecksHint:"Each line: «code | pdf path». Path may be relative (decks/01.pdf) or absolute. A blank module skips the deck.",
   setLog:"Result log (this device)",
   setLogEmpty:"No records yet.",
   setCopy:"Copy to clipboard", setCopied:"Copied ✓",
@@ -1324,6 +1348,63 @@ function renderIntro(resumable){
   }
 }
 
+/* ---------------- EĞİTİM SUNUMU (DECK) ---------------- */
+function deckUrlFor(mi){
+  var m=MODULES()[mi]; if(!m) return "";
+  var u = CFG.decks && CFG.decks[m.code];
+  if(!u) return "";
+  if(/^https?:\/\//i.test(u)) return u;
+  /* göreli yol: sunucuda doğrudan; yerel dosyada (file:) shareUrl ile mutlaklaştır */
+  var base = (location.protocol==="file:") ? (CFG.shareUrl||"https://inkaacademy.github.io/") : "";
+  if(base && !/\/$/.test(base)) base+="/";
+  return base+u.replace(/^\//,"");
+}
+function needDeck(mi){
+  return !!(CFG.decksOn && deckUrlFor(mi) && !(state.deckDone && state.deckDone[mi]));
+}
+function gotoModule(mi){
+  state.current=mi;
+  if(needDeck(mi)){ state.phase="deck"; save(); renderDeck(mi); }
+  else { state.phase="module"; save(); renderModule(mi); }
+  window.scrollTo(0,0);
+}
+function renderDeck(mi){
+  stopTimer(); certEl.style.display="none"; recEl.style.display="none";
+  var t=T(), m=MODULES()[mi], url=deckUrlFor(mi);
+  var minS=Math.max(0, +CFG.deckMinSec||0);
+  app.innerHTML='<div class="card">'+renderStepper()+
+    '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
+    '<h2 style="margin:10px 0 2px">'+esc(m.name)+'</h2>'+
+    '<p style="margin:.2rem 0 12px;color:var(--muted);font-size:.9rem">'+t.deckLead+'</p>'+
+    '<div style="position:relative;width:100%;background:#f0f2f5;border:1px solid var(--line);border-radius:10px;overflow:hidden">'+
+      '<iframe id="deckFrame" src="'+esc(url)+'#view=FitH" title="'+esc(m.name)+'" '+
+        'style="width:100%;height:78vh;min-height:420px;border:0;display:block"></iframe>'+
+    '</div>'+
+    '<div style="margin-top:8px;font-size:.82rem;color:var(--muted)">'+
+      t.deckOpenNew+' <a href="'+esc(url)+'" target="_blank" rel="noopener">'+t.deckOpenLink+'</a></div>'+
+    '<label class="chk" style="display:flex;gap:10px;align-items:flex-start;margin-top:16px;cursor:pointer">'+
+      '<input type="checkbox" id="deckChk" style="margin-top:3px"><span>'+t.deckConfirm+'</span></label>'+
+    '<div class="btnrow" style="margin-top:12px">'+
+      '<button class="btn gold" id="deckGo" disabled>'+t.deckStart+'</button>'+
+      '<span id="deckWait" style="align-self:center;font-size:.85rem;color:var(--muted)"></span>'+
+    '</div></div>';
+  var chk=document.getElementById("deckChk"), go=document.getElementById("deckGo"), wait=document.getElementById("deckWait");
+  var t0=Date.now();
+  function refresh(){
+    var left=Math.max(0, minS-Math.round((Date.now()-t0)/1000));
+    wait.textContent = left>0 ? t.deckCountdown(left) : "";
+    go.disabled = !(chk.checked && left<=0);
+  }
+  chk.onchange=refresh;
+  var iv=setInterval(function(){ refresh(); if(minS-((Date.now()-t0)/1000)<=0 && chk.checked===false){} if((Date.now()-t0)/1000>=minS){ clearInterval(iv); refresh(); } }, 500);
+  refresh();
+  go.onclick=function(){
+    if(!state.deckDone) state.deckDone={};
+    state.deckDone[mi]=true; state.phase="module"; save();
+    renderModule(mi); window.scrollTo(0,0);
+  };
+}
+
 /* ---------------- MODULE ---------------- */
 function fmtClock(ms){
   if(ms<0) ms=0; var s=Math.round(ms/1000);
@@ -1485,11 +1566,10 @@ function renderModuleResult(mi){
   document.getElementById("btnNext").onclick=function(){
     if(state.retakeQueue){
       var q=state.retakeQueue, pos=q.indexOf(mi), nxt=q[pos+1];
-      if(nxt!=null){ state.current=nxt; state.phase="module"; save(); renderModule(nxt); }
-      else { delete state.retakeQueue; state.phase="summary"; save(); renderSummary(); }
-    } else if(last){ state.phase="summary"; save(); renderSummary(); }
-    else { state.current=mi+1; state.phase="module"; save(); renderModule(mi+1); }
-    window.scrollTo(0,0);
+      if(nxt!=null){ gotoModule(nxt); }
+      else { delete state.retakeQueue; state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
+    } else if(last){ state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
+    else { gotoModule(mi+1); }
   };
   var rb=document.getElementById("btnReview");
   if(rb) rb.onclick=function(){
@@ -1666,10 +1746,11 @@ function renderSummary(){
       state.order[mi]=qi;
       m.questions.forEach(function(q){ state.optOrder[mi][q.n]=["a","b","c","d","e"]; });
       state.answers[mi]={}; state.focus[mi]=0; delete state.results[mi]; delete state.mtime[mi]; delete state.clock[mi];
+      if(state.deckDone) delete state.deckDone[mi];   /* kalınca sunumu tekrar izlesin */
     });
     delete state.logged;
-    state.current=failedIdx[0]; state.phase="module"; state.retakeQueue=failedIdx.slice();
-    save(); renderModule(failedIdx[0]); window.scrollTo(0,0);
+    state.retakeQueue=failedIdx.slice();
+    save(); gotoModule(failedIdx[0]);
   };
   document.getElementById("btnRestart").onclick=function(){
     if(confirm(T().restartConfirm)){ clearState(); state=null; renderIntro(null); window.scrollTo(0,0); }
@@ -2081,6 +2162,12 @@ function renderSettings(){
     '<div style="padding:12px 0;border-bottom:1px solid var(--line)"><label style="font-weight:600">'+t.setModules+'<span class="hint">'+t.setModulesHint+'</span></label>'+
       '<div class="modchecks">'+modChecks+'</div></div>'+
     '<div style="padding:12px 0;border-bottom:1px solid var(--line)">'+
+      '<div class="setrow"><label for="sDecksOn">'+t.setDecks+'</label><label class="switch"><input type="checkbox" id="sDecksOn"'+(CFG.decksOn?" checked":"")+'><span></span></label></div>'+
+      '<div class="setrow"><label>'+t.setDeckMin+'</label><input type="number" id="sDeckMin" min="0" max="600" value="'+(+CFG.deckMinSec||0)+'"></div>'+
+      '<label class="hint" style="display:block;margin:4px 0">'+t.setDecksHint+'</label>'+
+      '<textarea class="logbox" id="sDecks" style="height:150px;font-family:var(--font-mono);font-size:.82rem;white-space:pre">'+
+        esc(ALL_CODES.map(function(c){ return c+" | "+((CFG.decks&&CFG.decks[c])||""); }).join("\n"))+'</textarea></div>'+
+    '<div style="padding:12px 0;border-bottom:1px solid var(--line)">'+
       '<label style="font-weight:600">'+t.setRoleModules+'<span class="hint">'+t.setRoleModulesHint+'</span></label>'+
       '<select id="sRoleSel" style="margin-top:6px">'+
         ROLES.map(function(r){ var mk=(CFG.roleModules[r]&&CFG.roleModules[r].length)?" •":""; return '<option value="'+esc(r)+'">'+esc(r)+mk+'</option>'; }).join("")+
@@ -2170,6 +2257,20 @@ function renderSettings(){
       CFG.vessels = vs.length ? vs : CFG_DEFAULT.vessels.slice();
     })();
     if(pendingLogo!==null) CFG.logo=pendingLogo;
+    (function(){
+      var d1=document.getElementById("sDecksOn"); if(d1) CFG.decksOn=d1.checked;
+      var d2=document.getElementById("sDeckMin"); if(d2) CFG.deckMinSec=Math.max(0,Math.min(600,+d2.value||0));
+      var ta=document.getElementById("sDecks");
+      if(ta){
+        var map={};
+        (ta.value||"").split(/\r?\n/).forEach(function(line){
+          var i=line.indexOf("|"); if(i<0) return;
+          var code=line.slice(0,i).trim(), url=line.slice(i+1).trim();
+          if(/^\d{2}$/.test(code) && url) map[code]=url;
+        });
+        CFG.decks = Object.keys(map).length ? map : {};
+      }
+    })();
     var chosen=[].slice.call(document.querySelectorAll(".mchk:checked")).map(function(x){return x.value;});
     CFG.modules = chosen.length? ALL_CODES.filter(function(c){return chosen.indexOf(c)>=0;}) : ALL_CODES.slice();
     saveCfg(); host.innerHTML=""; applyChrome();
@@ -2626,7 +2727,8 @@ function render(){
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
   if(!state){ renderIntro(load()); return; }
-  if(state.phase==="module") renderModule(state.current);
+  if(state.phase==="deck") renderDeck(state.current);
+  else if(state.phase==="module"){ if(needDeck(state.current)){ state.phase="deck"; save(); renderDeck(state.current); } else renderModule(state.current); }
   else if(state.phase==="moduleResult") renderModuleResult(state.current);
   else if(state.phase==="summary") renderSummary();
   else if(state.phase==="certificate"){ if(!certCtx) certCtx={rec:buildRecord(),fromAdmin:false}; renderCertList(); }
