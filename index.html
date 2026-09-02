@@ -50,6 +50,21 @@
   p.lead{color:var(--muted);margin:0 0 16px;max-width:62ch}
   ul.rules{margin:0 0 8px;padding-left:20px}
   ul.rules li{margin:6px 0}
+  .rulebox{list-style:none;margin:0 0 8px;padding:0;display:grid;gap:8px}
+  .rulebox li{display:flex;gap:10px;align-items:flex-start;background:var(--bg);border:1px solid var(--line);
+    border-radius:10px;padding:9px 12px;font-size:.9rem}
+  .rulebox li .ri{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:.85rem;background:color-mix(in srgb,var(--rc,var(--navy)) 16%,#fff)}
+  .flow-steps{display:flex;align-items:center;gap:4px;margin:14px 0 18px;flex-wrap:wrap}
+  .flow-steps .fs{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--line);
+    border-radius:99px;padding:6px 13px 6px 8px;font-size:.78rem;font-weight:600;color:var(--muted)}
+  .flow-steps .fs .fsn{width:20px;height:20px;border-radius:50%;background:var(--navy);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:.68rem;font-family:var(--font-mono)}
+  .flow-steps .arrow{color:var(--line);font-size:1rem}
+  .resume-card{position:relative;overflow:hidden;background:linear-gradient(120deg,var(--warn-bg),#fff 60%);
+    border:1px solid #e6d3a3;border-radius:12px;padding:16px 18px;margin:14px 0}
+  .resume-card .rc-top{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--navy);margin-bottom:4px}
+  .resume-card .rc-ico{font-size:1.3rem}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
   @media(max-width:560px){.grid2{grid-template-columns:1fr}}
   label.fld{display:block;font-weight:600;margin:14px 0 6px;font-size:.9rem}
@@ -240,9 +255,19 @@
   .verify-panel .vbadge{font-size:1.1rem;font-weight:700;padding:10px 18px;border-radius:99px;display:inline-block}
 
   .admin-stats{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 14px}
-  .admin-stats div{flex:1;min-width:130px;background:#f1f5f9;border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-align:center}
-  .admin-stats b{display:block;font-size:1.7rem;font-family:var(--font-serif);color:var(--navy);line-height:1.1}
+  .admin-stats .st-card{flex:1;min-width:130px;border:1px solid var(--line);border-top:3px solid var(--sc,var(--navy));
+    border-radius:10px;padding:12px 14px;text-align:center;background:linear-gradient(180deg,color-mix(in srgb,var(--sc,var(--navy)) 8%,#fff),#fff)}
+  .admin-stats .st-ico{font-size:1.1rem;margin-bottom:2px}
+  .admin-stats b{display:block;font-size:1.7rem;font-family:var(--font-serif);color:var(--sc,var(--navy));line-height:1.1}
   .admin-stats span{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .livedot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:5px;
+    box-shadow:0 0 0 0 rgba(28,122,60,.5);animation:livepulse 1.8s infinite}
+  @keyframes livepulse{0%{box-shadow:0 0 0 0 rgba(28,122,60,.45)}70%{box-shadow:0 0 0 7px rgba(28,122,60,0)}100%{box-shadow:0 0 0 0 rgba(28,122,60,0)}}
+  .chipbtn[data-f="reg"].on{background:var(--sky);border-color:var(--sky)}
+  .chipbtn[data-f="prog"].on{background:var(--gold);border-color:var(--gold);color:#402d08}
+  .chipbtn[data-f="pass"].on{background:var(--ok);border-color:var(--ok)}
+  .chipbtn[data-f="fail"].on{background:var(--bad);border-color:var(--bad)}
+  .chipbtn[data-f="del"].on{background:var(--muted);border-color:var(--muted)}
 
   /* ---- module picker: colorful card grid ---- */
   .pick-top{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:6px 0 18px}
@@ -959,7 +984,7 @@ var STR = {
   adminPinShort:"PIN en az 4 hane olmalı.",
   adminPinMismatch:"PIN'ler eşleşmiyor.",
   adminPinWrong:"PIN hatalı.",
-  admStAttempts:"deneme", admStCandidates:"benzersiz aday", admStPassed:"başarılı aday",
+  admStAttempts:"deneme", admStCandidates:"benzersiz aday", admStPassed:"başarılı aday", admStFailed:"başarısız aday",
   admSearch:"Ad, sicil, gemi veya rütbe ile ara…",
   admCsvCopy:"CSV kopyala", admCsvDl:"CSV indir", admImport:"Sonuç kodu içe aktar",
   admChangePin:"PIN değiştir", admClear:"Kayıtları temizle",
@@ -1159,7 +1184,7 @@ var STR = {
   adminPinShort:"PIN must be at least 4 digits.",
   adminPinMismatch:"PINs do not match.",
   adminPinWrong:"Wrong PIN.",
-  admStAttempts:"attempts", admStCandidates:"unique candidates", admStPassed:"candidates passed",
+  admStAttempts:"attempts", admStCandidates:"unique candidates", admStPassed:"candidates passed", admStFailed:"candidates failed",
   admSearch:"Search by name, staff no, vessel or rank…",
   admCsvCopy:"Copy CSV", admCsvDl:"Download CSV", admImport:"Import result code",
   admChangePin:"Change PIN", admClear:"Clear records",
@@ -1387,16 +1412,27 @@ function renderIntro(resumable){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), N=CFG.modules.length;
   var resumeHtml = resumable ? (
-    '<div class="note">'+t.resume(esc(resumable.name||"—"), (resumable.current+1)+" / "+(resumable.modules?resumable.modules.length:N))+
+    '<div class="resume-card"><div class="rc-top"><span class="rc-ico">⏳</span>'+
+    t.resume(esc(resumable.name||"—"), (resumable.current+1)+" / "+(resumable.modules?resumable.modules.length:N))+'</div>'+
     '<div class="btnrow"><button class="btn gold" id="btnResume">'+t.resumeBtn+'</button>'+
     '<button class="btn ghost" id="btnFresh">'+t.freshBtn+'</button></div></div>'
   ) : "";
-  var rulesLi=t.rules().map(function(r){return "<li>"+r+"</li>";}).join("");
+  var ruleIco=["✅","❌","✍️","🏆","⏱️"], ruleCol=["var(--ok)","var(--bad)","var(--warn)","var(--gold-d)","var(--sky)"];
+  var rulesLi=t.rules().map(function(r,i){
+    return '<li><span class="ri" style="--rc:'+(ruleCol[i]||"var(--navy)")+'">'+(ruleIco[i]||"•")+'</span><span>'+r+'</span></li>';
+  }).join("");
+  var flowLabels = lang==="en"
+    ? ["Register","Pick module","Take exam","Certificate"]
+    : ["Kayıt ol","Modül seç","Sınava gir","Sertifika"];
+  var flowSteps='<div class="flow-steps">'+flowLabels.map(function(l,i){
+    return (i? '<span class="arrow">→</span>' : "")+'<span class="fs"><span class="fsn">'+(i+1)+'</span>'+l+'</span>';
+  }).join("")+'</div>';
   app.innerHTML=
    '<div class="card">'+
     '<h2>'+t.introTitle+'</h2>'+
     '<p class="lead">'+t.introLead.replace("{N}",N)+'</p>'+
-    '<h3>'+t.ruleH+'</h3><ul class="rules">'+rulesLi+'</ul>'+
+    flowSteps+
+    '<h3>'+t.ruleH+'</h3><ul class="rulebox">'+rulesLi+'</ul>'+
     resumeHtml+
     '<div class="grid2">'+
       '<div><label class="fld" for="fName">'+t.nameLbl+'</label>'+
@@ -2652,8 +2688,11 @@ function renderAdmin(){
   });
 
   var idOf=function(r){ return (r.sicil||r.name||"?").toLowerCase(); };
-  var uniq={}, passU={}, liveRecs=allRecs.filter(function(r){ return r.cloudStatus!=="deleted"; });
-  liveRecs.forEach(function(r){ uniq[idOf(r)]=1; if(r.allPass) passU[idOf(r)]=1; });
+  var uniq={}, passU={}, failU={}, liveRecs=allRecs.filter(function(r){ return r.cloudStatus!=="deleted"; });
+  liveRecs.forEach(function(r){ uniq[idOf(r)]=1;
+    if(recStatus(r)==="pass") passU[idOf(r)]=1;
+    else if(recStatus(r)==="fail") failU[idOf(r)]=1;
+  });
   // prune stale selections
   var selById={}; recs.forEach(function(r){ selById[r.attemptId]=1; });
   Object.keys(adminSel).forEach(function(k){ if(!selById[k]) delete adminSel[k]; });
@@ -2686,9 +2725,9 @@ function renderAdmin(){
   var cloudLine;
   if(!SB_ON) cloudLine='<div class="cloudline">'+t.cloudOff+'</div>';
   else if(cloudError) cloudLine='<div class="cloudline err">⚠ '+t.cloudErr+' <button class="btn sm ghost" id="aRefresh" style="margin-left:8px">'+t.cloudRefresh+'</button></div>';
-  else cloudLine='<div class="cloudline">☁ '+t.cloudOn+' ('+((cloudCache||[]).length)+')'+
+  else cloudLine='<div class="cloudline"><span class="livedot"></span>'+t.cloudOn+' ('+((cloudCache||[]).length)+')'+
       (cloudLastSync?' · '+t.cloudSync(new Date(cloudLastSync).toLocaleTimeString()):' · '+t.cloudLoading)+
-      ' <button class="btn sm ghost" id="aRefresh" style="margin-left:8px">'+t.cloudRefresh+'</button></div>';
+      ' <button class="btn sm ghost" id="aRefresh" style="margin-left:8px">🔄 '+t.cloudRefresh+'</button></div>';
 
   var chips=[["all",t.admFilterAll],["reg",t.admFilterReg],["prog",t.admFilterProg],["pass",t.admFilterPass],["fail",t.admFilterFail]];
   if(delCount) chips.push(["del","🗑 "+t.admFilterDel+" ("+delCount+")"]);
@@ -2706,9 +2745,10 @@ function renderAdmin(){
     '<h2>'+t.adminTitle+'</h2>'+
     cloudLine+
     '<div class="admin-stats">'+
-      '<div><b>'+liveRecs.length+'</b><span>'+t.admStAttempts+'</span></div>'+
-      '<div><b>'+Object.keys(uniq).length+'</b><span>'+t.admStCandidates+'</span></div>'+
-      '<div><b>'+Object.keys(passU).length+'</b><span>'+t.admStPassed+'</span></div>'+
+      '<div class="st-card" style="--sc:var(--sky)"><div class="st-ico">📋</div><b>'+liveRecs.length+'</b><span>'+t.admStAttempts+'</span></div>'+
+      '<div class="st-card" style="--sc:var(--plum)"><div class="st-ico">👥</div><b>'+Object.keys(uniq).length+'</b><span>'+t.admStCandidates+'</span></div>'+
+      '<div class="st-card" style="--sc:var(--ok)"><div class="st-ico">✅</div><b>'+Object.keys(passU).length+'</b><span>'+t.admStPassed+'</span></div>'+
+      '<div class="st-card" style="--sc:var(--bad)"><div class="st-ico">❌</div><b>'+Object.keys(failU).length+'</b><span>'+t.admStFailed+'</span></div>'+
     '</div>'+
     renderModChart(liveRecs)+
     '<input type="text" id="aSearch" class="searchbar" placeholder="'+esc(t.admSearch)+'" value="'+esc(adminSearch)+'">'+
@@ -2717,16 +2757,16 @@ function renderAdmin(){
     '</div>'+
     selBar+
     '<div class="btnrow" style="margin-top:0">'+
-      '<button class="btn sm ghost" id="aCsvCopy">'+t.admCsvCopy+'</button>'+
-      '<button class="btn sm ghost" id="aCsvDl">'+t.admCsvDl+'</button>'+
-      '<button class="btn sm ghost" id="aImport">'+t.admImport+'</button>'+
+      '<button class="btn sm ghost" id="aCsvCopy">📋 '+t.admCsvCopy+'</button>'+
+      '<button class="btn sm ghost" id="aCsvDl">⬇️ '+t.admCsvDl+'</button>'+
+      '<button class="btn sm ghost" id="aImport">📥 '+t.admImport+'</button>'+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
       '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
-      '<button class="btn sm ghost" id="aPin">'+t.admChangePin+'</button>'+
+      '<button class="btn sm ghost" id="aPin">🔑 '+t.admChangePin+'</button>'+
       (ADMIN_UI ? '<button class="btn sm ghost" id="aSbKey">☁ Bulut anahtarı</button>' : '')+
-      '<button class="btn sm ghost" id="aClear" style="border-color:var(--bad);color:var(--bad)">'+t.admClear+'</button>'+
-      '<button class="btn sm" id="aBack2">'+t.backApp+'</button>'+
+      '<button class="btn sm ghost" id="aClear" style="border-color:var(--bad);color:var(--bad)">🗑 '+t.admClear+'</button>'+
+      '<button class="btn sm ghost" id="aBack2">'+t.backApp+'</button>'+
     '</div>'+
     '<div id="aShareBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:6px">'+t.admShareLead+'</div>'+
