@@ -1832,6 +1832,10 @@ function gotoModule(mi){
   state.current=mi;
   if(needDeck(mi)){ state.phase="deck"; save(); renderDeck(mi); }
   else { state.phase="module"; save(); renderModule(mi); }
+  /* Aday bir modüle GİRER girmez (henüz bitirmese bile) yönetici panelinde "Devam" olarak
+     görünsün — önceden sadece bir modül BİTİNCE cloud'a "in_progress" yazılıyordu, bu yüzden
+     ilk modülünü henüz bitirmemiş adaylar "Kayıt oldu"da takılı kalıyordu. */
+  cloudPushProgress();
   window.scrollTo(0,0);
 }
 function backToPick(){ state.phase="pick"; delete state.retakeQueue; save(); renderPick(); window.scrollTo(0,0); }
