@@ -1070,6 +1070,7 @@ var STR = {
   ofCorrect:"/ "+Q_PER+" doğru",
   wrongLine:function(w){return w+" yanlış · Geçme sınırı: "+CFG.passMark+" doğru";},
   passBadge:"BU MODÜLÜ GEÇTİNİZ", failBadge:"BU MODÜLDEN KALDINIZ",
+  certNowBtn:"🎓 Sertifikayı görüntüle / indir", backToResult:"← Sonuca dön",
   reviewShow:"Cevapları incele", reviewHide:"İncelemeyi gizle",
   deckLead:"Bu modülün sınavına başlamadan önce eğitim sunumunu baştan sona inceleyin.",
   deckOpenNew:"Sunum açılmıyorsa:", deckOpenLink:"yeni sekmede aç / indir",
@@ -1273,6 +1274,7 @@ var STR = {
   ofCorrect:"/ "+Q_PER+" correct",
   wrongLine:function(w){return w+" wrong · Pass mark: "+CFG.passMark+" correct";},
   passBadge:"MODULE PASSED", failBadge:"MODULE FAILED",
+  certNowBtn:"🎓 View / download certificate", backToResult:"← Back to result",
   reviewShow:"Review answers", reviewHide:"Hide review",
   deckLead:"Study the training presentation from start to finish before starting this module's exam.",
   deckOpenNew:"If the presentation does not load:", deckOpenLink:"open in a new tab / download",
@@ -1980,10 +1982,13 @@ function renderModuleResult(mi){
       (state.focus[mi]?' · '+t.focusChip(state.focus[mi]):'')+'</p>'+
     '<span class="result-badge '+(r.passed?"pass":"fail")+'">'+(r.passed?t.passBadge:t.failBadge)+'</span>'+
     '<div class="btnrow">'+
+      (r.passed?'<button class="btn gold" id="btnCertNow">'+t.certNowBtn+'</button>':'')+
       ((CFG.allowReview && ADMIN_UI)?'<button class="btn ghost no-print" id="btnReview">'+t.reviewShow+'</button>':'')+
-      '<button class="btn'+(last?' gold':'')+'" id="btnNext">'+(freeMode?t.pickBack:(last?t.seeResults:t.nextModule))+'</button>'+
+      '<button class="btn'+((last&&!r.passed)?' gold':'')+'" id="btnNext">'+(freeMode?t.pickBack:(last?t.seeResults:t.nextModule))+'</button>'+
     '</div><div id="reviewBox" class="review" style="display:none;margin-top:18px"></div></div>';
   app.innerHTML=html;
+  var bc=document.getElementById("btnCertNow");
+  if(bc) bc.onclick=function(){ viewModuleCertNow(mi); window.scrollTo(0,0); };
 
   document.getElementById("btnNext").onclick=function(){
     if(state.retakeQueue){
@@ -2413,7 +2418,7 @@ function inkaCertHTML(rec, opts){
     '</div>'+
   '</div></div>';
 }
-function renderModuleCert(mcode){
+function renderModuleCert(mcode, backOverride){
   stopTimer(); recEl.style.display="none";
   if(!certCtx){ renderCertList(); return; }
   var rec=certCtx.rec, t=T();
@@ -2426,8 +2431,20 @@ function renderModuleCert(mcode){
     note:"Assessment passed with "+m.correct+" / 20 correct answers (pass mark "+(rec.passMark||CFG.passMark)+"/20).",
     code:moduleCode(rec,m), vurl:verifyBaseUrl()
   });
-  certShell(t, inner, t.certsBackList, function(){ certEl.style.display="none"; renderCertList(); window.scrollTo(0,0); },
+  var backLabel = (backOverride&&backOverride.label) || t.certsBackList;
+  var backFn = (backOverride&&backOverride.fn) || function(){ certEl.style.display="none"; renderCertList(); window.scrollTo(0,0); };
+  certShell(t, inner, backLabel, backFn,
     (rec.name||"aday")+" - "+m.code+" "+((SYLLABUS[m.code]||{}).title||m.name));
+}
+/* Immediate single-module certificate, reachable right from the module-result screen
+   (before all modules are finished) — "back" returns to that same result screen. */
+function viewModuleCertNow(mi){
+  var m=MODULES()[mi];
+  certCtx={rec:buildRecord(), fromAdmin:false};
+  renderModuleCert(m.code, {
+    label:T().backToResult,
+    fn:function(){ certEl.style.display="none"; renderModuleResult(mi); window.scrollTo(0,0); }
+  });
 }
 function renderGrandCert(){
   stopTimer(); recEl.style.display="none";
@@ -2789,6 +2806,17 @@ function renderModChart(liveRecs){
     (lang==="en"?"Pass rate by module":"Modül bazında geçme oranı")+'</summary>'+
     '<div class="modchart" style="margin-top:12px">'+rows+'</div></details>';
 }
+/* Status reflects progress as it happens: as soon as the candidate has finished at
+   least one module, show Geçti/Kaldı right away (Geçti while every module finished
+   so far is a pass; Kaldı as soon as any finished module is a fail) — don't make
+   them wait for every assigned module to be done. Only "Kayıt oldu"/"Devam" remain
+   for candidates who haven't finished a single module yet. */
+function recStatus(r){
+  if(r.cloudStatus==="deleted") return "del";
+  var attempted=(r.mods||[]).filter(function(m){ return m.end; });
+  if(!attempted.length) return (r.cloudStatus==="registered") ? "reg" : "prog";
+  return attempted.some(function(m){ return !m.passed; }) ? "fail" : "pass";
+}
 function renderAdmin(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   document.getElementById("footNote").style.display="none";
@@ -2852,12 +2880,6 @@ function renderAdmin(){
   var delCount = allRecs.filter(function(r){ return r.cloudStatus==="deleted"; }).length;
   var recs = allRecs.filter(function(r){ return (adminFilter==="del") === (r.cloudStatus==="deleted"); });
   var cloudBusy = SB_ON && cloudCache===null && !cloudError;
-  function recStatus(r){
-    if(r.cloudStatus==="registered") return "reg";
-    if(r.cloudStatus==="in_progress") return "prog";
-    if(r.cloudStatus==="deleted") return "del";
-    return r.allPass ? "pass" : "fail";
-  }
   var q=adminSearch.trim().toLowerCase();
   var shown=recs.filter(function(r){
     if(q && [r.name,r.sicil,r.vessel,r.rank].join(" ").toLowerCase().indexOf(q)<0) return false;
@@ -2879,13 +2901,14 @@ function renderAdmin(){
   var selCount=Object.keys(adminSel).length;
 
   function statusPill(r){
-    if(r.cloudStatus==="registered") return '<span class="pill" style="background:#e7eefb;color:#2c4a8a">'+t.stReg+'</span>';
-    if(r.cloudStatus==="in_progress") return '<span class="pill" style="background:var(--warn-bg);color:var(--warn)">'+t.stProg+'</span>';
-    if(r.cloudStatus==="deleted") return '<span class="pill" style="background:#eee;color:#999">✕</span>';
-    return '<span class="pill '+(r.allPass?"pass":"fail")+'">'+(r.allPass?t.pPass:t.pFail)+'</span>';
+    var s=recStatus(r);
+    if(s==="reg") return '<span class="pill" style="background:#e7eefb;color:#2c4a8a">'+t.stReg+'</span>';
+    if(s==="prog") return '<span class="pill" style="background:var(--warn-bg);color:var(--warn)">'+t.stProg+'</span>';
+    if(s==="del") return '<span class="pill" style="background:#eee;color:#999">✕</span>';
+    return '<span class="pill '+(s==="pass"?"pass":"fail")+'">'+(s==="pass"?t.pPass:t.pFail)+'</span>';
   }
   var rows=shown.map(function(r){
-    var i=recs.indexOf(r), done=(r.cloudStatus==="completed"||r.cloudStatus===undefined);
+    var i=recs.indexOf(r);
     return '<tr data-i="'+i+'" data-aid="'+esc(r.attemptId||"")+'" tabindex="0">'+
       '<td class="cbcell"><input type="checkbox" class="rowcb" data-aid="'+esc(r.attemptId||"")+'"'+(adminSel[r.attemptId]?" checked":"")+'></td>'+
       '<td>'+admFmtDate(r.ts)+'</td>'+
@@ -2893,7 +2916,7 @@ function renderAdmin(){
       '<td>'+esc(r.sicil||"—")+'</td>'+
       '<td>'+esc([r.rank,r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
       '<td class="sc">'+(r.passedCount!=null?r.passedCount:"—")+' / '+(r.moduleCount||(r.mods&&r.mods.length)||"?")+'</td>'+
-      '<td class="sc">'+(done&&r.total!=null?r.total:"—")+'</td>'+
+      '<td class="sc">'+(r.total!=null?r.total:"—")+'</td>'+
       '<td class="st">'+statusPill(r)+'</td>'+
       '<td class="sc">'+(r.autoAny?"⚠":"—")+'</td>'+
       '<td class="sc">'+(r.focusTotal||0)+'</td>'+
@@ -3105,7 +3128,7 @@ function renderAdminDetail(rec){
     '<p class="lead" id="adMeta">'+[rec.rank,rec.vessel,rec.sicil?t.recFields.sicil+": "+rec.sicil:""].filter(Boolean).map(esc).join(" · ")+'</p>'+
     '<p style="font-size:.85rem;color:var(--muted)">'+t.recFields.date+': '+admFmtDate(rec.ts)+' · '+t.recFields.lang+': '+(rec.lang==="en"?"English":"Türkçe")+
       ' · '+t.certNoLbl+': <b style="font-family:var(--font-mono)">'+esc(rec.certNo||"—")+'</b></p>'+
-    '<span class="result-badge '+(rec.allPass?"pass":"fail")+'">'+
+    '<span class="result-badge '+(recStatus(rec)==="fail"?"fail":"pass")+'">'+
       (rec.allPass?t.allPass(rec.passedCount,rec.moduleCount):t.somePass(rec.passedCount,rec.moduleCount))+'</span>'+
     '<div style="overflow-x:auto;margin-top:14px"><table class="rec"><thead><tr>'+
       '<th style="text-align:left">'+t.recTh.mod+'</th><th>'+t.recTh.correct+'</th><th>'+t.recTh.status+'</th>'+
