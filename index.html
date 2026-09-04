@@ -2620,7 +2620,15 @@ function parseVerifyCode(code){
   }catch(e){ return null; }
 }
 function verifyBaseUrl(){
-  return (location.protocol==="http:"||location.protocol==="https:") ? location.origin+location.pathname+"?verify=" : "";
+  /* Canlı sitede (https) kendi adresini kullanır. Yönetici dosyası yerelde (file://) açıldığında
+     location.origin anlamsız/boş olur — bu durumda gerçek yayın adresine (CFG.shareUrl, aynı
+     _absUrl()'deki mantık) düşer, böylece yerelden üretilen/yazdırılan sertifikalarda da hem
+     doğrulama adresi metni hem de QR kod her zaman gerçek, çalışan bir linke işaret eder. */
+  if(location.protocol==="http:"||location.protocol==="https:") return location.origin+location.pathname+"?verify=";
+  var base=(CFG.shareUrl||"https://inkaacademy.github.io/").trim();
+  if(!base) return "";
+  if(!/\/$/.test(base)) base+="/";
+  return base+"?verify=";
 }
 function openCerts(rec, fromAdmin){
   certCtx={rec:rec, fromAdmin:!!fromAdmin};
