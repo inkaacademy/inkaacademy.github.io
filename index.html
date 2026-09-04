@@ -1266,7 +1266,7 @@ var STR = {
   deckFullscreen:"Tam ekran",
   deckConfirm:"Sunumun tamamını inceledim ve sınava hazırım.",
   deckStart:"Sınava başla →",
-  deckCountdown:function(n){ return "Sunumu inceleyin — "+n+" sn"; },
+  deckCountdown:function(n){ return "Sunumu inceleyin — "+fmtCountdown(n); },
   nextModule:"Sonraki modül →", seeResults:"Sonuçları gör", cont:"Devam →",
   tCorrect:"DOĞRU", tWrong:"YANLIŞ",
   correctMark:" ✔ (doğru cevap)", yourMark:" ✗ (işaretlediğiniz)",
@@ -1483,7 +1483,7 @@ var STR = {
   deckFullscreen:"Fullscreen",
   deckConfirm:"I have studied the whole presentation and I am ready for the exam.",
   deckStart:"Start exam →",
-  deckCountdown:function(n){ return "Study the presentation — "+n+"s"; },
+  deckCountdown:function(n){ return "Study the presentation — "+fmtCountdown(n); },
   nextModule:"Next module →", seeResults:"See results", cont:"Continue →",
   tCorrect:"CORRECT", tWrong:"WRONG",
   correctMark:" ✔ (correct answer)", yourMark:" ✗ (your choice)",
@@ -1963,7 +1963,23 @@ function _absUrl(u){
    kod -> Drive dosya ID'si eşlemesidir. Video tek dilde (İngilizce anlatım) olduğu için
    TR/EN'e göre ayrı dosya aranmaz, aynı video her iki dilde de gösterilir. */
 var VIDEO_CODES = ["34","35","36","37","38","39","40","41","42","43","44"];
+/* Her videonun gerçek süresi (saniye, Whisper transkriptinden alınmıştır) — adayın sınava
+   geçebilmesi için bu ekranda en az bu kadar beklemesi gerekir (video gerçekten izlenmese
+   bile ekrandan erken çıkamaz). Google Drive'ın gömülü oynatıcısı farklı bir kaynak (origin)
+   olduğu için ileri sardırmayı/atlamayı script ile ENGELLEMEK mümkün değil — bu, gerçekçi
+   olarak uygulanabilecek en güçlü kısıtlama. Yönetici (ADMIN_UI) dosyasında bu bekleme
+   tamamen atlanır; adayların gerçek sitesinde her zaman uygulanır. */
+var VIDEO_DURATION_SEC = {
+  "34":445, "35":594, "36":671, "37":589, "38":697,
+  "39":1161,"40":264, "41":483, "42":1030,"43":230,"44":970
+};
 function isVideoModule(code){ return VIDEO_CODES.indexOf(code)>=0; }
+/* Bekleme sayacını okunaklı biçimlendirir: kısa süreler "N sn", uzun videolar "M:SS" olarak. */
+function fmtCountdown(n){
+  if(n<60) return n+(lang==="tr"?" sn":"s");
+  var m=Math.floor(n/60), s=n%60;
+  return m+":"+("0"+s).slice(-2);
+}
 function videoDriveId(code){ return (CFG.videos && CFG.videos[code]) || ""; }
 function videoEmbedUrl(code){ var id=videoDriveId(code); return id ? ("https://drive.google.com/file/d/"+id+"/preview") : ""; }
 function videoViewUrl(code){ var id=videoDriveId(code); return id ? ("https://drive.google.com/file/d/"+id+"/view") : ""; }
@@ -2063,7 +2079,7 @@ function renderPick(){
 function renderDeck(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), m=MODULES()[mi], isVid=isVideoModule(m.code);
-  var minS=Math.max(0, +CFG.deckMinSec||0);
+  var minS = ADMIN_UI ? 0 : (isVid ? (VIDEO_DURATION_SEC[m.code]||CFG.deckMinSec||0) : Math.max(0, +CFG.deckMinSec||0));
   /* .wrap'in 920px sınırını aşıp TÜM kartı (başlık, sunum, onay, buton) aynı geniş ölçüde
      hizalar — sadece sunum penceresi değil. (viewport tabanlı breakout, ekrana göre) */
   app.innerHTML=
