@@ -630,10 +630,10 @@ function cloudPushDone(){
 var ALL_CODES = DATA.tr.map(function(m){return m.code;});
 
 var ROLES = ["Master","Chf Off","2nd Off","3rd Off","4th Off","Deck Cad","Chf Eng","2nd Eng","3rd Eng","4th Eng",
- "ETO","Bosun","AB","Cook","Eng Cad","Fleet Manager","Fleet Superintendent","DPA","DPA Assistant",
+ "ETO","Bosun","AB","OS","Cook","Eng Cad","Fleet Manager","Fleet Superintendent","DPA","DPA Assistant",
  "HSEQ Manager","HSEQ Assistant","Advisor","Purchasing Assistant","Purchasing Manager",
  "Business Development Manager","Technical Manager","Training Superintendent","Training Superintendent Assistant",
- "Crewing Manager","Crew Assistant","Crewing","Sickwage","Observer","Quarantine","Deck Boy","Doctor","Wiper","Stwrd",
+ "Crewing Manager","Crew Assistant","Crewing","Sickwage","Observer","Quarantine","Deck Boy","Doctor","Wiper","Oiler","Stwrd","Catering Boy",
  "Fitter","Accounting Manager"];
 
 /* Course content shown on each module certificate (English, per the certificate standard) */
@@ -1088,11 +1088,14 @@ var CFG_DEFAULT = {
     "ETO":["04","23","25","28"],
     "Bosun":["04","08","13","19","23","27","28"],
     "AB":["04","08","13","19","23","27","28"],
+    "OS":["04","08","13","19","23","27","28"],   /* Ordinary Seaman: AB/Bosun ile aynı — güverte tayfası ortak seti */
     "Deck Boy":["04","08","13","19","23","27","28"],
     "Wiper":["04","19","23","28"],
+    "Oiler":["04","19","23","28"],   /* Wiper ile aynı — makine dairesi tayfası ortak seti */
     "Fitter":["04","19","23","28","33"],
     "Cook":["04","19","23","28","30"],
     "Stwrd":["04","19","23","28","31"],
+    "Catering Boy":["04","19","23","28","31"],   /* Stwrd ile aynı — kamarot/mutfak servis seti */
     "Deck Cad":["23"],
     "Eng Cad":["23"],
     // ——— Ofis / kara görevleri (matriste yok — varsayım: farkındalık modülleri) ———
