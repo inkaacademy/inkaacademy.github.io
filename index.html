@@ -57,10 +57,12 @@
   .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
   .langtoggle{display:flex;border:1px solid rgba(255,255,255,.4);border-radius:8px;overflow:hidden}
   .langtoggle button{background:transparent;color:#fff;border:0;padding:7px 12px;font-weight:600;font-size:.8rem;cursor:pointer;letter-spacing:.5px;font-family:var(--font-sans)}
-  .langtoggle button.active{background:var(--gold);color:var(--heading)}
+  .langtoggle button.active{background:var(--gold);color:var(--navy)}
   .iconbtn{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 10px;font-size:.95rem;cursor:pointer;line-height:1}
   .menuwrap{position:relative}
-  .menudrop{position:absolute;right:0;top:calc(100% + 8px);min-width:180px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px;z-index:50}
+  /* position:fixed (JS ile konumlandırılır) — header.topbar'ın kendi arkaplan efekti için
+     kullandığı overflow:hidden, absolute konumlu bir açılır kutuyu görünmez şekilde keserdi. */
+  .menudrop{position:fixed;min-width:180px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px;z-index:500}
   .menudrop button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:7px;padding:9px 11px;font-size:.84rem;color:var(--ink);cursor:pointer;font-family:var(--font-sans)}
   .menudrop button:hover{background:var(--bg)}
 
@@ -588,6 +590,43 @@ function genCandidatePassword(){
   var chars="ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   var out=""; for(var i=0;i<6;i++) out+=chars.charAt(Math.floor(Math.random()*chars.length));
   return out;
+}
+/* Aynı Crew List (gemi) tekrar yüklendiğinde, adı zaten bulutta kayıtlı olan kişilere YENİ bir
+   kullanıcı adı/şifre üretmek yerine kendi mevcut bilgilerini geri verir — böylece daha önce
+   dağıtılmış bir şifre, dosya tekrar yüklendiğinde sessizce değişmez. Sadece candidate_users
+   tablosunda password_plain sütunu varsa çalışır (bkz. supabase-8-aday-parola-sakla.sql);
+   sütun/tablo yoksa veya bulut erişilemezse herkese sıfırdan üretir (eski davranış, güvenli geri düşüş). */
+function assignCandidateCredentials(people, vessel, cb){
+  var usedU={};
+  function fresh(){
+    people.forEach(function(p){
+      p.username=genCandidateUsername(p.name, usedU); p.password=genCandidatePassword();
+      p.savedToCloud=false; p.existing=false;
+    });
+    cb();
+  }
+  if(!isAdminAuthed() || !vessel){ fresh(); return; }
+  sbFetch(SB_URL+"/rest/v1/candidate_users?vessel=eq."+encodeURIComponent(vessel)+"&select=username,display_name,password_plain,attempt_id", {
+    method:"GET", headers:sbAdminHeaders()
+  }).then(function(r){ return r.ok ? r.json() : null; }).then(function(existing){
+    if(!existing){ fresh(); return; }
+    var byName={};
+    existing.forEach(function(row){
+      if(row.display_name) byName[String(row.display_name).trim().toUpperCase()]=row;
+    });
+    people.forEach(function(p){
+      var m=byName[String(p.name||"").trim().toUpperCase()];
+      if(m && m.username && m.password_plain){
+        p.username=m.username; p.password=m.password_plain;
+        if(m.attempt_id) p.attemptId=m.attempt_id;
+        usedU[m.username]=true; p.savedToCloud=true; p.existing=true;
+      } else {
+        p.username=genCandidateUsername(p.name, usedU); p.password=genCandidatePassword();
+        p.savedToCloud=false; p.existing=false;
+      }
+    });
+    cb();
+  }).catch(fresh);
 }
 var LS_ADMIN_NAME = "gsm_admin_name_v1";
 function setServiceKey(k){
@@ -1857,6 +1896,10 @@ applyTheme();
     lo.textContent = lang==="en" ? "🚪 Sign out" : "🚪 Çıkış Yap";
     applyTheme();
     mDrop.style.display="block"; mBtn.setAttribute("aria-expanded","true");
+    var r=mBtn.getBoundingClientRect();
+    mDrop.style.top=(r.bottom+8)+"px";
+    mDrop.style.left="auto";
+    mDrop.style.right=(window.innerWidth-r.right)+"px";
   }
   mBtn.onclick=function(ev){ ev.stopPropagation(); if(mDrop.style.display==="none") openMenu(); else closeMenu(); };
   document.addEventListener("click", function(ev){ if(!mDrop.contains(ev.target) && ev.target!==mBtn) closeMenu(); });
@@ -3998,13 +4041,10 @@ function renderAdmin(){
               vNorm=canon||vNorm;
               vesselEl.value=vNorm; crewState.vessel=vNorm;
             }
-            var usedU={};
-            res.people.forEach(function(p){
-              p.username=genCandidateUsername(p.name, usedU);
-              p.password=genCandidatePassword();
-              p.savedToCloud=false;
+            msgEl.textContent=t.crewLoading;
+            assignCandidateCredentials(res.people, (vesselEl.value||"").trim(), function(){
+              crewState.people=res.people; msgEl.textContent=""; renderResults();
             });
-            crewState.people=res.people; msgEl.textContent=""; renderResults();
           }catch(err){ msgEl.textContent=t.crewNoRows; }
         };
         reader.readAsArrayBuffer(f);
