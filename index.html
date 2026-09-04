@@ -486,6 +486,25 @@ var LS_SBKEY = "gsm_sb_key_v1";
 if(ADMIN_UI){
   try{ var _sk = localStorage.getItem(LS_SBKEY); if(_sk){ SB_KEY = _sk; SB_ON = !!(SB_URL && SB_KEY); } }catch(e){}
 }
+/* Genel/yayınlanabilir anahtar — INSERT/UPDATE dışında bir şeye yaramaz (RLS ile kısıtlı),
+   bu yüzden yönetici dosyasında da sabit olarak gömülü: service_role anahtarı henüz
+   girilmemişken bile "kullanıcı adı + şifre ile giriş" (admin_login RPC) çağrısını yapabilmek
+   için gerekli — Supabase her isteğe geçerli bir apikey ister. */
+var SB_ANON_KEY = "sb_publishable_kDJg5MzWKTsrgWR-IYRhZA_9XFA9VC6";
+function sbAnonHeaders(extra){
+  var h={ "apikey":SB_ANON_KEY, "Authorization":"Bearer "+SB_ANON_KEY, "Content-Type":"application/json" };
+  if(extra) for(var k in extra) h[k]=extra[k];
+  return h;
+}
+function adminLoginRPC(username, password, cb){
+  var hash=h32(String(username).trim().toLowerCase()+"|"+String(password)+"|inka-admin-user-v1");
+  sbFetch(SB_URL+"/rest/v1/rpc/admin_login", {
+    method:"POST", headers:sbAnonHeaders(), body:JSON.stringify({p_username:String(username).trim().toLowerCase(), p_password_hash:hash})
+  }).then(function(r){ return r.ok ? r.json() : null; }).then(function(rows){
+    cb(rows && rows.length ? rows[0] : null);
+  }).catch(function(){ cb(null); });
+}
+var LS_ADMIN_NAME = "gsm_admin_name_v1";
 function setServiceKey(k){
   k = (k||"").trim(); if(!k) return false;
   SB_KEY = k; SB_ON = !!(SB_URL && SB_KEY);
@@ -1244,6 +1263,7 @@ var STR = {
   start:"Sınava Başla",
   resume:function(n,c){return "Yarım kalmış bir sınav bulundu: <b>"+n+"</b> · Modül "+c+".";},
   resumeBtn:"Kaldığı yerden devam et", freshBtn:"Yeni sınav başlat",
+  fromLinkNote:"Bu, size özel gönderilen bir link — kayıtlarınız güvende, hangi cihazdan açarsanız açın kaldığınız yerden devam edersiniz.",
   stepCap:function(a,b){return "Modül "+a+" / "+b;},
   moduleOf:function(c,name){return "MODÜL "+c;},
   answeredMeta:function(a){return a+" / "+Q_PER+" soru cevaplandı";},
@@ -1461,6 +1481,7 @@ var STR = {
   start:"Start Exam",
   resume:function(n,c){return "An unfinished exam was found: <b>"+n+"</b> · Module "+c+".";},
   resumeBtn:"Resume where I left off", freshBtn:"Start a new exam",
+  fromLinkNote:"This is your personal link — your progress is safely stored; open it from any device and you'll continue right where you left off.",
   stepCap:function(a,b){return "Module "+a+" / "+b;},
   moduleOf:function(c,name){return "MODULE "+c;},
   answeredMeta:function(a){return a+" / "+Q_PER+" questions answered";},
@@ -1845,12 +1866,65 @@ function newState(f){
     });
   });
   return {
-    attemptId:"A"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+    attemptId: f.attemptId || ("A"+Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
+    fromLink: !!f.attemptId,
     lang:lang, name:f.name, rank:f.rank, vessel:f.vessel, sicil:f.sicil, honor:true, shuffle:!!f.shuffle,
     started:new Date().toISOString(), modules:codes,
     order:order, optOrder:optOrder, answers:answers, results:{}, mtime:{}, clock:{}, focus:focus, deckDone:{},
     current:0, phase: CFG.freeOrder ? "pick" : "module"
   };
+}
+/* Kişiye özel Crew List linki (?aid=...) ile hangi cihazdan girilirse girilsin kaldığı
+   yerden devam edebilmek için: bulutta o attempt_id'ye ait kayıt varsa, o kayıttan
+   (rec.mods[]) çalışan bir state nesnesi yeniden kurar. Sadece TAMAMLANMIŞ modüllerin
+   doğru/yanlış ve verilen cevapları geri gelir (buildRecord/cloudPushProgress'in kaydettiği
+   kadarı) — yarım kalmış bir modülün ortasına dönmez, modül seçim ekranına düşer. */
+function stateFromCloudRecord(row){
+  try{
+    var rec = (row && row.record) || {};
+    var mods = rec.mods || [];
+    if(!mods.length) return null;
+    var codes=[], order={}, optOrder={}, answers={}, results={}, mtime={}, focus={}, deckDone={};
+    var bc = byCode(rec.lang || lang);
+    mods.forEach(function(m,mi){
+      codes.push(m.code);
+      answers[mi] = m.given || {};
+      focus[mi] = m.focus||0;
+      var bm = bc[m.code];
+      var qCount = bm ? bm.questions.length : 20;
+      var qi=[]; for(var i=0;i<qCount;i++) qi.push(i);
+      order[mi]=qi; optOrder[mi]={};
+      if(bm) bm.questions.forEach(function(q){ optOrder[mi][q.n]=["a","b","c","d","e"]; });
+      if(m.end){
+        results[mi]={correct:m.correct, wrong:20-(+m.correct||0), passed:!!m.passed, auto:!!m.auto};
+        mtime[mi]={start:m.start, end:m.end};
+        deckDone[mi]=true;
+      } else if(m.start){ mtime[mi]={start:m.start, end:null}; }
+    });
+    if(!codes.length) return null;
+    var current = mods.findIndex(function(m){ return !m.end; });
+    if(current<0) current = mods.length-1;
+    return {
+      attemptId: rec.attemptId || row.attempt_id, fromLink:true,
+      lang: rec.lang || lang, name: rec.name||row.name||"", rank: rec.rank||row.rank||"",
+      vessel: rec.vessel||row.vessel||"", sicil: rec.sicil||row.seamans_book_no||"",
+      honor:true, shuffle:true, started: rec.startedAt || row.started_at || new Date().toISOString(),
+      modules: codes, order:order, optOrder:optOrder, answers:answers, results:results,
+      mtime:mtime, clock:{}, focus:focus, deckDone:deckDone,
+      current: current, phase:"pick", cloudDone:(rec.cloudStatus==="completed" || row.status==="completed")
+    };
+  }catch(e){ return null; }
+}
+function fetchExamStateByAid(aid, cb){
+  if(!aid || !(location.protocol==="http:"||location.protocol==="https:")){ cb(null); return; }
+  try{
+    sbFetch(SB_URL+"/rest/v1/rpc/get_exam_state", {
+      method:"POST", headers:sbAnonHeaders(), body:JSON.stringify({p_attempt_id:aid})
+    }).then(function(r){ return r.ok ? r.json() : null; }).then(function(rows){
+      var row = rows && rows.length ? rows[0] : null;
+      cb(row ? stateFromCloudRecord(row) : null);
+    }).catch(function(){ cb(null); });
+  }catch(e){ cb(null); }
 }
 
 /* ---------------- INTRO ---------------- */
@@ -1861,7 +1935,9 @@ function renderIntro(resumable, prefill){
     '<div class="resume-card"><div class="rc-top"><span class="rc-ico">⏳</span>'+
     t.resume(esc(resumable.name||"—"), (resumable.current+1)+" / "+(resumable.modules?resumable.modules.length:N))+'</div>'+
     '<div class="btnrow"><button class="btn gold" id="btnResume">'+t.resumeBtn+'</button>'+
-    '<button class="btn ghost" id="btnFresh">'+t.freshBtn+'</button></div></div>'
+    (resumable.fromLink ? '' : '<button class="btn ghost" id="btnFresh">'+t.freshBtn+'</button>')+'</div>'+
+    (resumable.fromLink ? '<p style="font-size:.76rem;color:var(--muted);margin-top:8px">'+t.fromLinkNote+'</p>' : '')+
+    '</div>'
   ) : "";
   var ruleIco=["✅","❌","✍️","🏆","⏱️"], ruleCol=["var(--ok)","var(--bad)","var(--warn)","var(--gold-d)","var(--sky)"];
   var rulesLi=t.rules().map(function(r,i){
@@ -1935,7 +2011,8 @@ function renderIntro(resumable, prefill){
       name:name, rank:document.getElementById("fRank").value.trim(),
       vessel:vesselValue(),
       sicil:document.getElementById("fSicil").value.trim(),
-      shuffle:document.getElementById("fShuffle").checked
+      shuffle:document.getElementById("fShuffle").checked,
+      attemptId: prefill && prefill.aid
     });
     save(); cloudPushStart(); render(); window.scrollTo(0,0);
   };
@@ -1946,7 +2023,8 @@ function renderIntro(resumable, prefill){
       if(state.lang && state.lang!==lang){ lang=state.lang; applyChrome(); }
       render(); window.scrollTo(0,0);
     };
-    document.getElementById("btnFresh").onclick=function(){ clearState(); renderIntro(null); };
+    var btnFresh=document.getElementById("btnFresh");
+    if(btnFresh) btnFresh.onclick=function(){ clearState(); renderIntro(null); };
   }
 }
 
@@ -3218,7 +3296,8 @@ function parseCrewWorkbook(wb){
     people.push({
       name:nameV, rankRaw:rankV, rank:matchRank(rankV),
       sicil: sicilCol>=0 ? cellTxt(row3[sicilCol]) : "",
-      signon: signonCol>=0 ? cellTxt(row3[signonCol]) : ""
+      signon: signonCol>=0 ? cellTxt(row3[signonCol]) : "",
+      attemptId: genAid()
     });
   }
   return {error:null, vessel:vessel, people:people};
@@ -3228,7 +3307,7 @@ function parseCrewWorkbook(wb){
    önce ayrı ayrı script ile üretilen örnek dosyayla aynı tasarımdadır). */
 function buildCrewHtmlReport(vessel, people, base){
   var rows=people.map(function(p,i){
-    var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil);
+    var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId);
     return '<tr>'+
       '<td class="c">'+(i+1)+'</td>'+
       '<td>'+esc(p.name)+'</td>'+
@@ -3265,9 +3344,16 @@ function buildCrewHtmlReport(vessel, people, base){
     'navigator.clipboard&&navigator.clipboard.writeText(v).then(function(){b.textContent="Kopyalandı ✓";setTimeout(function(){b.textContent="Kopyala";},1500);});};});</scr'+'ipt>'+
     '</body></html>';
 }
-function crewLinkFor(base, name, rank, vessel, sicil){
+/* Her Crew List linkine sabit, tahmin edilemez bir kimlik (aid) verir — bu sayede link
+   hangi cihazdan açılırsa açılsın aynı bulut kaydına bağlanır (bkz. fetchExamStateByAid). */
+function genAid(){
+  try{ if(window.crypto && crypto.randomUUID) return "L"+crypto.randomUUID().replace(/-/g,""); }catch(e){}
+  return "L"+Date.now().toString(36)+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);
+}
+function crewLinkFor(base, name, rank, vessel, sicil, aid){
   return base+(base.indexOf("?")>=0?"&":"?")+"name="+encodeURIComponent(name)+"&rank="+encodeURIComponent(rank||"")+
-    "&vessel="+encodeURIComponent(vessel||"")+"&sicil="+encodeURIComponent(sicil||"")+"&lang="+lang;
+    "&vessel="+encodeURIComponent(vessel||"")+"&sicil="+encodeURIComponent(sicil||"")+"&lang="+lang+
+    "&aid="+encodeURIComponent(aid||"");
 }
 
 function renderAdmin(){
@@ -3303,14 +3389,39 @@ function renderAdmin(){
   /* Yönetici dosyası: bulut anahtarı henüz girilmemişse iste (bu cihazda saklanır, dosyaya yazılmaz) */
   if(ADMIN_UI && !SB_KEY){
     app.innerHTML='<div class="card verify-panel"><h2>'+t.adminTitle+'</h2>'+
-      '<p class="lead" style="font-size:.86rem">Sonuçları görmek için Supabase <b>service_role</b> anahtarını bir kez yapıştırın. '+
-      'Anahtar yalnızca bu bilgisayarın tarayıcısında saklanır, dosyanın içine yazılmaz. Bu dosyayı ve anahtarı kimseyle paylaşmayın.</p>'+
-      '<label class="fld" for="asbk">service_role anahtarı</label>'+
-      '<input type="password" id="asbk" autocomplete="off" spellcheck="false" placeholder="eyJhbGciOi... veya sb_secret_...">'+
-      '<div class="note warn" id="asbkErr" style="display:none"></div>'+
-      '<div class="btnrow"><button class="btn" id="asbkGo">Kaydet ve aç</button>'+
-      '<button class="btn ghost" id="asbkBack">'+t.backApp+'</button></div></div>';
+      '<p class="lead" style="font-size:.86rem">Kullanıcı adı ve şifrenizle giriş yapın. İlk kurulumda henüz kullanıcı yoksa, '+
+      'aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "👥 Kullanıcılar" bölümünden '+
+      'kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.</p>'+
+      '<label class="fld" for="aluUser">Kullanıcı adı</label><input type="text" id="aluUser" autocomplete="username" autocapitalize="off">'+
+      '<label class="fld" for="aluPass">Şifre</label><input type="password" id="aluPass" autocomplete="current-password">'+
+      '<div class="note warn" id="aluErr" style="display:none"></div>'+
+      '<div class="btnrow"><button class="btn" id="aluGo">Giriş yap</button>'+
+      '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">service_role anahtarıyla gir</button></div>'+
+      '<div id="asbkBox" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">'+
+        '<label class="fld" for="asbk">service_role anahtarı (ilk kurulum)</label>'+
+        '<input type="password" id="asbk" autocomplete="off" spellcheck="false" placeholder="eyJhbGciOi... veya sb_secret_...">'+
+        '<div class="note warn" id="asbkErr" style="display:none"></div>'+
+        '<div class="btnrow"><button class="btn" id="asbkGo">Kaydet ve aç</button></div>'+
+      '</div>'+
+      '<div class="btnrow" style="margin-top:14px"><button class="btn ghost" id="asbkBack">'+t.backApp+'</button></div></div>';
     document.getElementById("asbkBack").onclick=adminBack;
+    document.getElementById("asbkToggle").onclick=function(){
+      var b=document.getElementById("asbkBox"); b.style.display=b.style.display==="none"?"block":"none";
+    };
+    document.getElementById("aluGo").onclick=function(){
+      var u=document.getElementById("aluUser").value.trim(), p=document.getElementById("aluPass").value;
+      var e=document.getElementById("aluErr"), btn=document.getElementById("aluGo");
+      if(!u || !p){ e.style.display="block"; e.textContent="Kullanıcı adı ve şifre gerekli."; return; }
+      e.style.display="none"; btn.textContent="…"; btn.disabled=true;
+      adminLoginRPC(u, p, function(res){
+        btn.textContent="Giriş yap"; btn.disabled=false;
+        if(!res){ e.style.display="block"; e.textContent="Kullanıcı adı veya şifre hatalı."; return; }
+        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); }catch(err){}
+        setServiceKey(res.service_key); cloudCache=null; cloudFails=0;
+        if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
+        renderAdmin();
+      });
+    };
     document.getElementById("asbkGo").onclick=function(){
       var v=document.getElementById("asbk").value, e=document.getElementById("asbkErr");
       if((v||"").trim().length<20){ e.style.display="block"; e.textContent="Anahtar çok kısa görünüyor."; return; }
@@ -3318,7 +3429,7 @@ function renderAdmin(){
       if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
       renderAdmin();
     };
-    var kf=document.getElementById("asbk"); if(kf) kf.focus();
+    var uf=document.getElementById("aluUser"); if(uf) uf.focus();
     return;
   }
 
@@ -3408,8 +3519,9 @@ function renderAdmin(){
       '</div>'
     : '';
 
+  var adminName=""; try{ adminName=localStorage.getItem(LS_ADMIN_NAME)||""; }catch(e){}
   app.innerHTML='<div class="card">'+
-    '<h2>'+t.adminTitle+'</h2>'+
+    '<h2>'+t.adminTitle+(adminName?' <span style="font-size:.62rem;font-weight:500;color:var(--muted);vertical-align:middle">— '+esc(adminName)+'</span>':'')+'</h2>'+
     cloudLine+
     '<div class="admin-stats">'+
       '<div class="st-card" style="--sc:var(--sky)"><div class="st-ico">📋</div><b>'+liveRecs.length+'</b><span>'+t.admStAttempts+'</span></div>'+
@@ -3429,6 +3541,7 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aImport">📥 '+t.admImport+'</button>'+
       '<button class="btn sm ghost" id="aCrew">👥 '+t.admCrewBtn+'</button>'+
       '<button class="btn sm ghost" id="aKeys">🔑 '+t.admKeysBtn+'</button>'+
+      (ADMIN_UI ? '<button class="btn sm ghost" id="aUsers">🔐 Kullanıcılar</button>' : '')+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
       '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
@@ -3470,6 +3583,17 @@ function renderAdmin(){
       '</div>'+
       '<div id="aKeysWrap" style="margin-top:10px"></div>'+
     '</div>'+
+    (ADMIN_UI ? '<div id="aUsersBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">Kullanıcı adı + şifreyle giriş yapabilecek yöneticiler. Hepsi aynı yetkiye sahiptir (bu cihazdaki service_role anahtarının bir kopyasıyla oluşturulur) — sadece kimin giriş yaptığını ayırt etmek içindir.</div>'+
+      '<div id="aUsersList" style="margin-bottom:12px"></div>'+
+      '<div class="grid2">'+
+        '<div><label class="fld" for="auName">Görünen ad</label><input type="text" id="auName" placeholder="Örn. Taner Akciğer"></div>'+
+        '<div><label class="fld" for="auUser">Kullanıcı adı</label><input type="text" id="auUser" autocapitalize="off"></div>'+
+        '<div><label class="fld" for="auPass">Şifre</label><input type="password" id="auPass"></div>'+
+      '</div>'+
+      '<div id="aUsersMsg" style="font-size:.8rem;color:var(--bad);margin:6px 0"></div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="auAdd">+ Kullanıcı ekle</button></div>'+
+    '</div>' : '')+
     '<textarea class="logbox" id="aCsvBox" readonly style="display:none;height:120px;margin-top:10px"></textarea>'+
     (cloudBusy && !recs.length
       ? '<div class="note" style="margin-top:12px"><span class="spin"></span> '+t.cloudFetching+'</div>'
@@ -3550,8 +3674,9 @@ function renderAdmin(){
   document.getElementById("aPin").onclick=function(){ adminUnlocked=false; saveAdmin({}); if(adminPoll){clearInterval(adminPoll);adminPoll=null;} renderAdmin(); };
   var aSbKeyBtn=document.getElementById("aSbKey");
   if(aSbKeyBtn) aSbKeyBtn.onclick=function(){
-    if(confirm("Kayıtlı bulut anahtarını silip yeniden girmek ister misiniz?")){
-      clearServiceKey(); if(adminPoll){clearInterval(adminPoll);adminPoll=null;} renderAdmin();
+    if(confirm("Çıkış yapıp yeniden giriş yapmak (veya farklı kullanıcı ile girmek) ister misiniz?")){
+      clearServiceKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); }catch(e){}
+      if(adminPoll){clearInterval(adminPoll);adminPoll=null;} renderAdmin();
     }
   };
   document.getElementById("aDemo").onclick=function(){
@@ -3589,7 +3714,7 @@ function renderAdmin(){
       if(!people || !people.length){ wrapEl.innerHTML=""; return; }
       var vessel=vesselEl.value.trim();
       var rowsHtml=people.map(function(p,i){
-        var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil);
+        var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId);
         var rankOpts='<option value="">'+esc(t.crewUnmatched)+'</option>'+ROLES.map(function(r){
           return '<option value="'+esc(r)+'"'+(r===p.rank?" selected":"")+'>'+esc(r)+'</option>';
         }).join("");
@@ -3619,12 +3744,12 @@ function renderAdmin(){
       wrapEl.querySelectorAll(".crewCopyBtn").forEach(function(btn){
         btn.onclick=function(){
           var p=people[+btn.getAttribute("data-i")];
-          copyText(crewLinkFor(base, p.name, p.rank, vessel, p.sicil), btn);
+          copyText(crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId), btn);
         };
       });
       var copyAllBtn=document.getElementById("crewCopyAll");
       if(copyAllBtn) copyAllBtn.onclick=function(){
-        var lines=people.map(function(p){ return p.name+"\t"+p.rank+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil); });
+        var lines=people.map(function(p){ return p.name+"\t"+p.rank+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId); });
         copyText(lines.join("\n"), copyAllBtn);
       };
       var dlBtn=document.getElementById("crewDlCsv");
@@ -3632,7 +3757,7 @@ function renderAdmin(){
         var csvEsc=function(s){ s=String(s==null?"":s); return /[",\n]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s; };
         var lines=["Ad Soyad,Rütbe,Seaman's Book No,Link"];
         people.forEach(function(p){
-          lines.push([p.name,p.rank,p.sicil,crewLinkFor(base,p.name,p.rank,vessel,p.sicil)].map(csvEsc).join(","));
+          lines.push([p.name,p.rank,p.sicil,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId)].map(csvEsc).join(","));
         });
         download((vessel||"crew")+" - sinav linkleri.csv", lines.join("\r\n"), "text/csv;charset=utf-8");
       };
@@ -3705,6 +3830,58 @@ function renderAdmin(){
       lines.push("");
     });
     download("cevap_anahtarlari.txt", lines.join("\n"), "text/plain;charset=utf-8");
+  };
+  var aUsersBtn=document.getElementById("aUsers");
+  if(aUsersBtn) aUsersBtn.onclick=function(){
+    var b=document.getElementById("aUsersBox");
+    var willOpen=b.style.display==="none";
+    b.style.display=willOpen?"block":"none";
+    if(willOpen) loadAdminUsersList();
+  };
+  function loadAdminUsersList(){
+    var listEl=document.getElementById("aUsersList");
+    if(!listEl) return;
+    listEl.innerHTML='<span class="spin"></span>';
+    sbFetch(SB_URL+"/rest/v1/admin_users?select=username,display_name,created_at&order=created_at.asc", { headers:sbHeaders() })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(rows){
+        if(!rows){ listEl.innerHTML='<div class="note warn">Liste okunamadı — admin_users tablosu kurulmamış olabilir (bkz. supabase-5-admin-kullanicilari.sql).</div>'; return; }
+        if(!rows.length){ listEl.innerHTML='<div class="note">Henüz kullanıcı yok.</div>'; return; }
+        listEl.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+rows.map(function(u){
+          return '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:8px">'+
+            '<b style="flex:1">'+esc(u.display_name)+'</b><span style="color:var(--muted);font-family:var(--font-mono);font-size:.8rem">'+esc(u.username)+'</span>'+
+            '<button class="btn sm ghost auDel" data-u="'+esc(u.username)+'" style="border-color:var(--bad);color:var(--bad)">Sil</button></div>';
+        }).join("")+'</div>';
+        listEl.querySelectorAll(".auDel").forEach(function(btn){
+          btn.onclick=function(){
+            var un=btn.getAttribute("data-u");
+            if(!confirm(un+" kullanıcısını silmek istediğinize emin misiniz?")) return;
+            sbFetch(SB_URL+"/rest/v1/admin_users?username=eq."+encodeURIComponent(un), { method:"DELETE", headers:sbHeaders({"Prefer":"return=minimal"}) })
+              .then(function(){ loadAdminUsersList(); });
+          };
+        });
+      });
+  }
+  var auAdd=document.getElementById("auAdd");
+  if(auAdd) auAdd.onclick=function(){
+    var name=document.getElementById("auName").value.trim();
+    var user=document.getElementById("auUser").value.trim().toLowerCase();
+    var pass=document.getElementById("auPass").value;
+    var msg=document.getElementById("aUsersMsg");
+    msg.textContent="";
+    if(!name||!user||!pass){ msg.textContent="Görünen ad, kullanıcı adı ve şifre gerekli."; return; }
+    if(pass.length<4){ msg.textContent="Şifre en az 4 karakter olmalı."; return; }
+    var hash=h32(user+"|"+pass+"|inka-admin-user-v1");
+    auAdd.textContent="…"; auAdd.disabled=true;
+    sbFetch(SB_URL+"/rest/v1/admin_users", {
+      method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}),
+      body:JSON.stringify({username:user, password_hash:hash, display_name:name, service_key:SB_KEY})
+    }).then(function(r){
+      auAdd.textContent="+ Kullanıcı ekle"; auAdd.disabled=false;
+      if(!r.ok){ msg.textContent="Eklenemedi — bu kullanıcı adı zaten var olabilir."; return; }
+      document.getElementById("auName").value=""; document.getElementById("auUser").value=""; document.getElementById("auPass").value="";
+      loadAdminUsersList();
+    }).catch(function(){ auAdd.textContent="+ Kullanıcı ekle"; auAdd.disabled=false; msg.textContent="Bağlantı hatası."; });
   };
   app.querySelectorAll(".adm-table tbody tr").forEach(function(tr){
     var open=function(){ renderAdminDetail(recs[+tr.getAttribute("data-i")]); };
@@ -3858,17 +4035,33 @@ function render(){
 try{ var sl=localStorage.getItem(LS_LANG); if(sl==="en"||sl==="tr") lang=sl; }catch(e){}
 var qp=null; try{ qp=new URLSearchParams(location.search); }catch(e){}
 applyChrome();
-if(qp && qp.has("verify")){
-  renderVerify(qp.get("verify"));
-} else {
+function bootNormal(){
   var saved=load();
   if(qp && qp.has("lang") && (qp.get("lang")==="en"||qp.get("lang")==="tr")){ lang=qp.get("lang"); applyChrome(); }
   else if(saved && saved.lang && (saved.lang==="en"||saved.lang==="tr")) { lang=saved.lang; applyChrome(); }
   var prefill=null;
-  if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil"))){
-    prefill={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||""};
+  if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil")||qp.has("aid"))){
+    prefill={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||""};
   }
   renderIntro(saved && saved.phase ? saved : null, prefill);
+}
+if(qp && qp.has("verify")){
+  renderVerify(qp.get("verify"));
+} else if(qp && qp.get("aid")){
+  /* Kişiye özel Crew List linki: bu cihazda zaten AYNI kimliğin ilerlemesi varsa
+     (yerelde daha güncel/eksiksiz olabilir) ağ isteği yapmadan onunla devam et;
+     yoksa buluttaki kaydı (varsa) getirip oradan kaldığı yerden başlat. */
+  var aidParam=qp.get("aid"), savedLocal=load();
+  if(savedLocal && savedLocal.attemptId===aidParam && savedLocal.phase){
+    bootNormal();
+  } else {
+    fetchExamStateByAid(aidParam, function(cloudState){
+      if(cloudState){ state=cloudState; save(); render(); window.scrollTo(0,0); }
+      else { bootNormal(); }
+    });
+  }
+} else {
+  bootNormal();
 }
 })();
 </script>
