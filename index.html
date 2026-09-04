@@ -1432,6 +1432,7 @@ var STR = {
   setLogMoved:"kayıtlar Yönetici Paneli'nde",
   adminOpen:"Yönetici Panelini Aç",
   adminTitle:"Yönetici Paneli",
+  loginGateTitle:"İNKA Akademi — Giriş",
   adminSetupLead:"İlk kurulum. Kayıtları görüntülemek için bir yönetici PIN'i belirleyin (en az 4 hane). Bu PIN yalnızca bu cihazda saklanır ve hafif bir erişim korumasıdır.",
   adminGateLead:"Kayıtları görüntülemek için yönetici PIN'ini girin.",
   adminPin:"Yönetici PIN", adminPin2:"PIN (tekrar)",
@@ -1647,6 +1648,7 @@ var STR = {
   setLogMoved:"records are in the Admin Panel",
   adminOpen:"Open Admin Panel",
   adminTitle:"Admin Panel",
+  loginGateTitle:"INKA Academy — Sign In",
   adminSetupLead:"First-time setup. Set an admin PIN (min 4 digits) to view records. The PIN is stored only on this device and is a light access gate.",
   adminGateLead:"Enter the admin PIN to view records.",
   adminPin:"Admin PIN", adminPin2:"PIN (repeat)",
@@ -3457,20 +3459,21 @@ function crewLinkFor(base, name, rank, vessel, sicil, aid){
 function renderLoginGate(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T();
-  app.innerHTML='<div class="card verify-panel"><h2>'+t.adminTitle+'</h2>'+
-    '<p class="lead" style="font-size:.86rem">Kullanıcı adı ve şifrenizle giriş yapın.'+
-    (ADMIN_UI ? ' İlk kurulumda henüz kullanıcı yoksa, aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "🔐 Kullanıcılar" bölümünden kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.' : '')+
+  var L=function(tr,en){ return lang==="en" ? en : tr; };
+  app.innerHTML='<div class="card verify-panel"><h2>'+t.loginGateTitle+'</h2>'+
+    '<p class="lead" style="font-size:.86rem">'+(lang==="en" ? "Sign in with your username and password." : "Kullanıcı adı ve şifrenizle giriş yapın.")+
+    (ADMIN_UI ? (lang==="en" ? ' If no user exists yet on first setup, enter the one-time service_role key below to continue — once the panel opens you can set usernames/passwords for yourself and others under "🔐 Users".' : ' İlk kurulumda henüz kullanıcı yoksa, aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "🔐 Kullanıcılar" bölümünden kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.') : '')+
     '</p>'+
-    '<label class="fld" for="aluUser">Kullanıcı adı</label><input type="text" id="aluUser" autocomplete="username" autocapitalize="off">'+
-    '<label class="fld" for="aluPass">Şifre</label><input type="password" id="aluPass" autocomplete="current-password">'+
+    '<label class="fld" for="aluUser">'+(lang==="en"?"Username":"Kullanıcı adı")+'</label><input type="text" id="aluUser" autocomplete="username" autocapitalize="off">'+
+    '<label class="fld" for="aluPass">'+(lang==="en"?"Password":"Şifre")+'</label><input type="password" id="aluPass" autocomplete="current-password">'+
     '<div class="note warn" id="aluErr" style="display:none"></div>'+
-    '<div class="btnrow"><button class="btn" id="aluGo">Giriş yap</button>'+
-    (ADMIN_UI ? '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">service_role anahtarıyla gir</button>' : '')+'</div>'+
+    '<div class="btnrow"><button class="btn" id="aluGo">'+L("Giriş yap","Sign in")+'</button>'+
+    (ADMIN_UI ? '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">'+L("service_role anahtarıyla gir","Sign in with service_role key")+'</button>' : '')+'</div>'+
     (ADMIN_UI ? '<div id="asbkBox" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">'+
-      '<label class="fld" for="asbk">service_role anahtarı (ilk kurulum)</label>'+
+      '<label class="fld" for="asbk">'+L("service_role anahtarı (ilk kurulum)","service_role key (first-time setup)")+'</label>'+
       '<input type="password" id="asbk" autocomplete="off" spellcheck="false" placeholder="eyJhbGciOi... veya sb_secret_...">'+
       '<div class="note warn" id="asbkErr" style="display:none"></div>'+
-      '<div class="btnrow"><button class="btn" id="asbkGo">Kaydet ve aç</button></div>'+
+      '<div class="btnrow"><button class="btn" id="asbkGo">'+L("Kaydet ve aç","Save and open")+'</button></div>'+
     '</div>' : '')+
     (state ? '<div class="btnrow" style="margin-top:14px"><button class="btn ghost" id="asbkBack">'+t.backApp+'</button></div>' : '')+
   '</div>';
@@ -3482,7 +3485,7 @@ function renderLoginGate(){
   document.getElementById("aluGo").onclick=function(){
     var u=document.getElementById("aluUser").value.trim(), p=document.getElementById("aluPass").value;
     var e=document.getElementById("aluErr"), btn=document.getElementById("aluGo");
-    if(!u || !p){ e.style.display="block"; e.textContent="Kullanıcı adı ve şifre gerekli."; return; }
+    if(!u || !p){ e.style.display="block"; e.textContent=L("Kullanıcı adı ve şifre gerekli.","Username and password are required."); return; }
     e.style.display="none"; btn.textContent="…"; btn.disabled=true;
     adminLoginRPC(u, p, function(res){
       if(res){
@@ -3494,8 +3497,8 @@ function renderLoginGate(){
         return;
       }
       candidateLoginRPC(u, p, function(cres){
-        btn.textContent="Giriş yap"; btn.disabled=false;
-        if(!cres){ e.style.display="block"; e.textContent="Kullanıcı adı veya şifre hatalı."; return; }
+        btn.textContent=L("Giriş yap","Sign in"); btn.disabled=false;
+        if(!cres){ e.style.display="block"; e.textContent=L("Kullanıcı adı veya şifre hatalı.","Incorrect username or password."); return; }
         var prefill={name:cres.display_name||"", rank:cres.rank||"", vessel:cres.vessel||"", sicil:cres.sicil||"", aid:cres.attempt_id||""};
         fetchExamStateByAid(prefill.aid, function(cloudState){
           if(cloudState){ state=cloudState; save(); render(); window.scrollTo(0,0); }
@@ -3507,7 +3510,7 @@ function renderLoginGate(){
   var asbkGo=document.getElementById("asbkGo");
   if(asbkGo) asbkGo.onclick=function(){
     var v=document.getElementById("asbk").value, e=document.getElementById("asbkErr");
-    if((v||"").trim().length<20){ e.style.display="block"; e.textContent="Anahtar çok kısa görünüyor."; return; }
+    if((v||"").trim().length<20){ e.style.display="block"; e.textContent=L("Anahtar çok kısa görünüyor.","This key looks too short."); return; }
     setServiceKey(v); adminUnlocked=true; cloudCache=null; cloudFails=0;
     if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
     renderAdmin();
