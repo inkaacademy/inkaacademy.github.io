@@ -521,6 +521,9 @@ var crewState = { open:false, people:null, vessel:"" };
    yaşıyordu. */
 var usersBoxOpen = false;
 var usersDraft = { name:"", user:"", pass:"" };
+/* "🚢 Kayıtlı Gemi Listeleri" kutusu da aynı nedenle renderAdmin() dışında tutulur. */
+var savedCrewsOpen = false;
+var savedVesselsList = null;
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
 var SB_URL   = "https://hoauaumaooxgtmjxxelq.supabase.co";
@@ -627,6 +630,26 @@ function assignCandidateCredentials(people, vessel, cb){
     });
     cb();
   }).catch(fresh);
+}
+/* candidate_users'a yazarken password_plain'i de göndermeyi dener (bkz. assignCandidateCredentials'ın
+   üstündeki not) — ama supabase-8-aday-parola-sakla.sql henüz çalıştırılmamışsa (sütun yok) bu isteğin
+   kendisi reddedilir; bu durumda sütunsuz olarak SESSİZCE yeniden dener, böylece bu özellik script
+   çalıştırılmadan ÖNCE de var olan "Hesapları oluştur" akışını asla bozmaz. cb(ok, usedPlain). */
+function saveCandidateRows(rows, cb){
+  var withPlain=rows.map(function(row){ return row; });
+  sbFetch(SB_URL+"/rest/v1/candidate_users", {
+    method:"POST", headers:sbAdminHeaders({"Prefer":"resolution=merge-duplicates,return=minimal"}),
+    body:JSON.stringify(withPlain)
+  }).then(function(r){
+    if(r.ok){ cb(true, true); return; }
+    var noPlain=rows.map(function(row){
+      var c={}; for(var k in row) if(k!=="password_plain") c[k]=row[k]; return c;
+    });
+    sbFetch(SB_URL+"/rest/v1/candidate_users", {
+      method:"POST", headers:sbAdminHeaders({"Prefer":"resolution=merge-duplicates,return=minimal"}),
+      body:JSON.stringify(noPlain)
+    }).then(function(r2){ cb(r2.ok, false); }).catch(function(){ cb(false, false); });
+  }).catch(function(){ cb(false, false); });
 }
 var LS_ADMIN_NAME = "gsm_admin_name_v1";
 function setServiceKey(k){
@@ -3765,6 +3788,7 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aCsvDl">⬇️ '+t.admCsvDl+'</button>'+
       '<button class="btn sm ghost" id="aImport">📥 '+t.admImport+'</button>'+
       '<button class="btn sm ghost" id="aCrew">👥 '+t.admCrewBtn+'</button>'+
+      '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
       '<button class="btn sm ghost" id="aKeys">🔑 '+t.admKeysBtn+'</button>'+
       (ADMIN_UI ? '<button class="btn sm ghost" id="aUsers">🔐 Kullanıcılar</button>' : '')+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
@@ -3797,6 +3821,15 @@ function renderAdmin(){
       '</div>'+
       '<div id="crewMsg" style="font-size:.82rem;color:var(--muted)"></div>'+
       '<div id="crewResultsWrap"></div>'+
+    '</div>'+
+    '<div id="aSavedCrewsBox" style="display:'+(savedCrewsOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+
+        (lang==="en"
+          ? "Browse a vessel's already-created crew accounts without re-uploading the Excel file — download CSV/HTML straight from what's saved."
+          : "Excel dosyasını tekrar yüklemeden, bir geminin daha önce oluşturulmuş hesaplarını görüntüleyin — kayıtlı veriden direkt CSV/HTML indirin.")+
+      '</div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aSavedList">🔄 '+(lang==="en"?"List vessels":"Gemileri listele")+'</button></div>'+
+      '<div id="savedVesselsWrap" style="margin-top:8px"></div>'+
     '</div>'+
     '<div id="aKeysBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+t.keysLead+'</div>'+
@@ -3926,6 +3959,60 @@ function renderAdmin(){
     crewState.open=!crewState.open;
     document.getElementById("aCrewBox").style.display=crewState.open?"block":"none";
   };
+  document.getElementById("aSavedCrews").onclick=function(){
+    savedCrewsOpen=!savedCrewsOpen;
+    document.getElementById("aSavedCrewsBox").style.display=savedCrewsOpen?"block":"none";
+  };
+  (function(){
+    var listBtn=document.getElementById("aSavedList"), wrap=document.getElementById("savedVesselsWrap");
+    if(!listBtn) return;
+    var listLbl="🔄 "+(lang==="en"?"List vessels":"Gemileri listele");
+    function renderVesselList(){
+      if(!savedVesselsList){ wrap.innerHTML=""; return; }
+      if(!savedVesselsList.length){ wrap.innerHTML='<div class="note">'+(lang==="en"?"No saved crew accounts yet.":"Henüz kayıtlı aday hesabı yok.")+'</div>'; return; }
+      wrap.innerHTML='<div class="btnrow" style="flex-wrap:wrap">'+
+        savedVesselsList.map(function(v){ return '<button class="btn sm ghost saved-vessel-btn" data-v="'+esc(v)+'">🚢 '+esc(v)+'</button>'; }).join("")+
+      '</div>';
+      wrap.querySelectorAll(".saved-vessel-btn").forEach(function(b){
+        b.onclick=function(){
+          var v=b.getAttribute("data-v"); b.textContent="…";
+          sbFetch(SB_URL+"/rest/v1/candidate_users?vessel=eq."+encodeURIComponent(v)+"&select=username,display_name,rank,sicil,password_plain,attempt_id&order=display_name.asc", {
+            method:"GET", headers:sbAdminHeaders()
+          }).then(function(r){ return r.ok ? r.json() : []; }).then(function(rows){
+            var people=(rows||[]).map(function(row){
+              return {
+                name:row.display_name||"", rank:row.rank||"", rankRaw:row.rank||"", sicil:row.sicil||"",
+                username:row.username||"",
+                password: row.password_plain || (lang==="en" ? "(saved before password storage — re-upload the Excel to reset)" : "(parola saklama eklenmeden önce kaydedilmiş — sıfırlamak için Excel'i tekrar yükleyin)"),
+                attemptId:row.attempt_id||"", savedToCloud:true, existing:true
+              };
+            });
+            crewState={ open:true, people:people, vessel:v };
+            renderAdmin();
+            setTimeout(function(){ var box=document.getElementById("aCrewBox"); if(box) box.scrollIntoView({behavior:"smooth", block:"start"}); }, 60);
+          }).catch(function(){ b.textContent="🚢 "+v; });
+        };
+      });
+    }
+    listBtn.onclick=function(){
+      listBtn.textContent="…"; listBtn.disabled=true;
+      sbFetch(SB_URL+"/rest/v1/candidate_users?select=vessel", { method:"GET", headers:sbAdminHeaders() })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(rows){
+          listBtn.textContent=listLbl; listBtn.disabled=false;
+          if(!rows){ wrap.innerHTML='<div class="note" style="color:var(--bad)">'+(lang==="en"?"Could not load — candidate_users table may not exist yet.":"Yüklenemedi — candidate_users tablosu henüz kurulmamış olabilir.")+'</div>'; return; }
+          var seen={}, list=[];
+          rows.forEach(function(row){ var v=(row.vessel||"").trim(); if(v && !seen[v]){ seen[v]=true; list.push(v); } });
+          list.sort();
+          savedVesselsList=list;
+          renderVesselList();
+        }).catch(function(){
+          listBtn.textContent=listLbl; listBtn.disabled=false;
+          wrap.innerHTML='<div class="note" style="color:var(--bad)">'+(lang==="en"?"Connection error.":"Bağlantı hatası.")+'</div>';
+        });
+    };
+    renderVesselList();
+  })();
   (function(){
     var fileEl=document.getElementById("crewFile"), vesselEl=document.getElementById("crewVessel"),
         msgEl=document.getElementById("crewMsg"), wrapEl=document.getElementById("crewResultsWrap");
@@ -3974,21 +4061,23 @@ function renderAdmin(){
         var rows=people.map(function(p){
           return {
             username:p.username, password_hash:candidatePasswordHash(p.username, p.password),
+            password_plain:p.password,
             display_name:p.name, rank:p.rank||"", vessel:vessel||"", sicil:p.sicil||"", attempt_id:p.attemptId
           };
         });
-        sbFetch(SB_URL+"/rest/v1/candidate_users", {
-          method:"POST", headers:sbAdminHeaders({"Prefer":"resolution=merge-duplicates,return=minimal"}),
-          body:JSON.stringify(rows)
-        }).then(function(r){
+        saveCandidateRows(rows, function(ok, usedPlain){
           crewSaveBtn.textContent="🚀 Hesapları oluştur (giriş bilgileri)"; crewSaveBtn.disabled=false;
-          if(!r.ok){ saveMsg.style.color="var(--bad)"; saveMsg.textContent="Kaydedilemedi — candidate_users tablosu kurulmamış olabilir (bkz. supabase-7-aday-girisleri.sql)."; return; }
+          if(!ok){ saveMsg.style.color="var(--bad)"; saveMsg.textContent="Kaydedilemedi — candidate_users tablosu kurulmamış olabilir (bkz. supabase-7-aday-girisleri.sql)."; return; }
           people.forEach(function(p){ p.savedToCloud=true; });
-          saveMsg.style.color="var(--ok)"; saveMsg.textContent=people.length+" hesap oluşturuldu/güncellendi.";
+          /* Önce yeniden çiz, SONRA mesajı yaz — renderResults() #crewSaveMsg'i de baştan
+             oluşturduğu için tersi sırada mesaj anında silinip hiç görünmüyordu. */
           renderResults();
-        }).catch(function(){
-          crewSaveBtn.textContent="🚀 Hesapları oluştur (giriş bilgileri)"; crewSaveBtn.disabled=false;
-          saveMsg.style.color="var(--bad)"; saveMsg.textContent="Bağlantı hatası.";
+          var m2=document.getElementById("crewSaveMsg");
+          if(m2){
+            m2.style.color="var(--ok)";
+            m2.textContent=people.length+" hesap oluşturuldu/güncellendi."+
+              (usedPlain?"":" (Aynı gemi tekrar yüklendiğinde şifrelerin sabit kalması için supabase-8-aday-parola-sakla.sql'i çalıştırın.)");
+          }
         });
       };
       wrapEl.querySelectorAll(".crewRankSel").forEach(function(sel){
