@@ -4154,7 +4154,21 @@ function render(){
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
   var mw=document.getElementById("mainWrap"); if(mw) mw.classList.remove("admin-wide");
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
-  if(!state){ renderIntro(load()); return; }
+  if(!state){
+    /* TR/EN dil butonu (setLang) her ekrandan render()'ı çağırıyor — giriş ekranındayken
+       (state henüz yok) buraya düşüldüğünde bootNormal() ile AYNI kuralı uygulamak gerekir:
+       yerel bir ilerleme varsa ona devam, kişiye özel link varsa onunla kayıt formu,
+       hiçbiri yoksa girişe düş. Aksi halde dil butonuna basmak tek başına girişi atlatırdı. */
+    var ld=load();
+    if(ld && ld.phase){ renderIntro(ld); return; }
+    var pf=null;
+    if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil")||qp.has("aid"))){
+      pf={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||""};
+    }
+    if(pf){ renderIntro(null, pf); return; }
+    renderLoginGate();
+    return;
+  }
   if(state.phase==="pick") renderPick();
   else if(state.phase==="deck") renderDeck(state.current);
   else if(state.phase==="module"){ if(needDeck(state.current)){ state.phase="deck"; save(); renderDeck(state.current); } else renderModule(state.current); }
