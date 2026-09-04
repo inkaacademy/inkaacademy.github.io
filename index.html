@@ -2091,7 +2091,10 @@ function renderIntro(resumable, prefill){
       render(); window.scrollTo(0,0);
     };
     var btnFresh=document.getElementById("btnFresh");
-    if(btnFresh) btnFresh.onclick=function(){ clearState(); renderIntro(null); };
+    /* Bu buton sadece fromLink=false kayıtlarda gösteriliyor (bkz. resumeHtml yukarıda) —
+       yani buraya her ulaşıldığında zaten "linksiz/girişsiz" bir eski kayıt söz konusu.
+       Boş kayıt formunu asla direkt açma — girişe geri düşür. */
+    if(btnFresh) btnFresh.onclick=function(){ clearState(); renderLoginGate(); };
   }
 }
 
@@ -2657,7 +2660,16 @@ function renderSummary(){
     save(); gotoModule(failedIdx[0]);
   };
   document.getElementById("btnRestart").onclick=function(){
-    if(confirm(T().restartConfirm)){ clearState(); state=null; renderIntro(null); window.scrollTo(0,0); }
+    if(confirm(T().restartConfirm)){
+      /* Kişiye özel link/aday girişinden gelen kayıtlarda (fromLink) kimliği koruyup
+         yeniden kayıt formunu önceden dolduruyoruz; öyle olmayan (girişsiz/eski) kayıtlarda
+         boş formu açmak yerine girişe geri düşürüyoruz — aksi halde "Yeniden başlat" da
+         giriş zorunluluğunu atlatan bir kaçış yolu olurdu. */
+      var keepPrefill = state.fromLink ? {name:state.name, rank:state.rank, vessel:state.vessel, sicil:state.sicil, aid:state.attemptId} : null;
+      clearState(); state=null;
+      if(keepPrefill){ renderIntro(null, keepPrefill); } else { renderLoginGate(); }
+      window.scrollTo(0,0);
+    }
   };
 }
 
