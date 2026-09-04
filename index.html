@@ -1727,7 +1727,7 @@ function newState(f){
 }
 
 /* ---------------- INTRO ---------------- */
-function renderIntro(resumable){
+function renderIntro(resumable, prefill){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), N=CFG.modules.length;
   var resumeHtml = resumable ? (
@@ -1782,10 +1782,22 @@ function renderIntro(resumable){
     var mods=modulesForRole(r), custom=CFG.roleModules && CFG.roleModules[r] && CFG.roleModules[r].length;
     roleHint.textContent = custom ? T().roleAssigned(r, mods.length) : T().roleAllModules(mods.length);
   }
-  rankSel.onchange=updRoleHint; updRoleHint();
   var vSel=document.getElementById("fVessel"), vOther=document.getElementById("fVesselOther");
   vSel.onchange=function(){ vOther.style.display = vSel.value==="__other" ? "block" : "none"; if(vSel.value==="__other") vOther.focus(); };
   function vesselValue(){ return vSel.value==="__other" ? vOther.value.trim() : vSel.value.trim(); }
+  /* Kişi bazlı link: ?name=&rank=&vessel=&sicil= parametreleriyle formu önceden doldurur —
+     aday linki kendi açar, bilgilerini görüp onaylar ve sınava KENDİSİ girer; hiçbir alan
+     otomatik "geçti" yapılmaz, sadece veri girişini hızlandırıp hatayı azaltır. */
+  if(!resumable && prefill){
+    if(prefill.name) pf.value=prefill.name;
+    if(prefill.rank && ROLES.indexOf(prefill.rank)>=0) rankSel.value=prefill.rank;
+    if(prefill.vessel){
+      if(CFG.vessels.indexOf(prefill.vessel)>=0) vSel.value=prefill.vessel;
+      else { vSel.value="__other"; vOther.value=prefill.vessel; vOther.style.display="block"; }
+    }
+    if(prefill.sicil) document.getElementById("fSicil").value=prefill.sicil;
+  }
+  rankSel.onchange=updRoleHint; updRoleHint();
   document.getElementById("btnStart").onclick=function(){
     var name=pf.value.trim();
     if(!name){ pf.focus(); pf.style.borderColor="var(--bad)"; return; }
@@ -3420,8 +3432,13 @@ if(qp && qp.has("verify")){
   renderVerify(qp.get("verify"));
 } else {
   var saved=load();
-  if(saved && saved.lang && (saved.lang==="en"||saved.lang==="tr")) { lang=saved.lang; applyChrome(); }
-  renderIntro(saved && saved.phase ? saved : null);
+  if(qp && qp.has("lang") && (qp.get("lang")==="en"||qp.get("lang")==="tr")){ lang=qp.get("lang"); applyChrome(); }
+  else if(saved && saved.lang && (saved.lang==="en"||saved.lang==="tr")) { lang=saved.lang; applyChrome(); }
+  var prefill=null;
+  if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil"))){
+    prefill={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||""};
+  }
+  renderIntro(saved && saved.phase ? saved : null, prefill);
 }
 })();
 </script>
