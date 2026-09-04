@@ -520,7 +520,10 @@ var crewState = { open:false, people:null, vessel:"" };
    kutu kapanıp formda yazılanlar kayboluyor, kullanıcı bunu "sistem beni geri atıyor" olarak
    yaşıyordu. */
 var usersBoxOpen = false;
-var usersDraft = { name:"", user:"", pass:"" };
+/* editing: düzenlenmekte olan kullanıcı adı ("" = yeni ekleme modu). Kullanıcı adı
+   düzenlemede değiştirilemez — şifre hash'i kullanıcı adıyla tuzlandığı için ad değişirse
+   eski hash geçersiz olur; yeniden adlandırma = sil + yeniden ekle. */
+var usersDraft = { name:"", user:"", pass:"", rank:"", editing:"" };
 /* "🚢 Kayıtlı Gemi Listeleri" kutusu da aynı nedenle renderAdmin() dışında tutulur. */
 var savedCrewsOpen = false;
 var savedVesselsList = null;
@@ -672,7 +675,8 @@ function setAdminKey(k){ k=(k||"").trim(); if(!k) return false; ADMIN_KEY=k; try
 function clearAdminKey(){ ADMIN_KEY=""; cloudCache=null; try{ localStorage.removeItem(LS_ADMIN_KEY); }catch(e){} }
 function activeAdminKey(){ return ADMIN_UI ? SB_KEY : ADMIN_KEY; }
 function isAdminAuthed(){ return !!activeAdminKey(); }
-function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); }catch(e){} }
+var LS_ADMIN_RANK = "gsm_admin_rank_v1";
+function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); localStorage.removeItem(LS_ADMIN_RANK); }catch(e){} }
 function sbAdminHeaders(extra){
   var k=activeAdminKey();
   var h={ "apikey":k, "Authorization":"Bearer "+k, "Content-Type":"application/json" };
@@ -2202,6 +2206,12 @@ function renderIntro(resumable, prefill){
   /* Kişi bazlı link: ?name=&rank=&vessel=&sicil= parametreleriyle formu önceden doldurur —
      aday linki kendi açar, bilgilerini görüp onaylar ve sınava KENDİSİ girer; hiçbir alan
      otomatik "geçti" yapılmaz, sadece veri girişini hızlandırıp hatayı azaltır. */
+  /* Yönetici/şirket çalışanı kendi oturumuyla sınava giriyorsa gemi ve seaman's book sorulmaz —
+     bunlar gemi personeli içindir. Kişiye özel aday linki (prefill.aid) varsa bu gizleme yapılmaz. */
+  if(isAdminAuthed() && !(prefill && prefill.aid)){
+    vSel.parentNode.style.display="none";
+    document.getElementById("fSicil").parentNode.style.display="none";
+  }
   if(!resumable && prefill){
     if(prefill.name) pf.value=prefill.name;
     if(prefill.rank && ROLES.indexOf(prefill.rank)>=0) rankSel.value=prefill.rank;
@@ -3438,8 +3448,8 @@ function adminBack(){
          kendisi de görebilsin diye. Adı boşuna yeniden yazmasın diye kendi görünen adını
          (admin_users.display_name) otomatik dolduruyoruz; rütbe/gemi seçimi ona kalıyor
          (farklı rolleri test edebilsin diye). */
-      var an=null; try{ an=localStorage.getItem(LS_ADMIN_NAME); }catch(e){}
-      renderIntro(null, an ? {name:an} : null);
+      var an=null, ar=null; try{ an=localStorage.getItem(LS_ADMIN_NAME); ar=localStorage.getItem(LS_ADMIN_RANK); }catch(e){}
+      renderIntro(null, an ? {name:an, rank:ar||""} : null);
     }
   }
   window.scrollTo(0,0);
@@ -3644,7 +3654,7 @@ function renderLoginGate(){
     e.style.display="none"; btn.textContent="…"; btn.disabled=true;
     adminLoginRPC(u, p, function(res){
       if(res){
-        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); }catch(err){}
+        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); localStorage.setItem(LS_ADMIN_RANK, res.rank||""); }catch(err){}
         if(ADMIN_UI) setServiceKey(res.service_key); else setAdminKey(res.service_key);
         adminUnlocked=true; cloudCache=null; cloudFails=0;
         if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
@@ -3843,13 +3853,18 @@ function renderAdmin(){
     (ADMIN_UI ? '<div id="aUsersBox" style="display:'+(usersBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">Kullanıcı adı + şifreyle giriş yapabilecek yöneticiler. Hepsi aynı yetkiye sahiptir (bu cihazdaki service_role anahtarının bir kopyasıyla oluşturulur) — sadece kimin giriş yaptığını ayırt etmek içindir.</div>'+
       '<div id="aUsersList" style="margin-bottom:12px"></div>'+
+      (usersDraft.editing ? '<div class="note" style="margin-bottom:8px">✏️ <b>'+esc(usersDraft.editing)+'</b> düzenleniyor — şifreyi boş bırakırsanız değişmez.</div>' : '')+
       '<div class="grid2">'+
         '<div><label class="fld" for="auName">Görünen ad</label><input type="text" id="auName" placeholder="Örn. Taner Akciğer" value="'+esc(usersDraft.name)+'"></div>'+
-        '<div><label class="fld" for="auUser">Kullanıcı adı</label><input type="text" id="auUser" autocapitalize="off" value="'+esc(usersDraft.user)+'"></div>'+
-        '<div><label class="fld" for="auPass">Şifre</label><input type="password" id="auPass" value="'+esc(usersDraft.pass)+'"></div>'+
+        '<div><label class="fld" for="auUser">Kullanıcı adı</label><input type="text" id="auUser" autocapitalize="off" value="'+esc(usersDraft.user)+'"'+(usersDraft.editing?' readonly style="opacity:.6"':'')+'></div>'+
+        '<div><label class="fld" for="auRank">Görev</label><select id="auRank"><option value="">— Görev seçiniz —</option>'+
+          ROLES.map(function(r){ return '<option value="'+esc(r)+'"'+(r===usersDraft.rank?" selected":"")+'>'+esc(r)+'</option>'; }).join("")+
+        '</select><div style="font-size:.72rem;color:var(--muted);margin-top:3px">Sınav/sunum ekranında ad ve görev otomatik dolar; gemi ve seaman\'s book sorulmaz.</div></div>'+
+        '<div><label class="fld" for="auPass">'+(usersDraft.editing?'Yeni şifre (isteğe bağlı)':'Şifre')+'</label><input type="password" id="auPass" value="'+esc(usersDraft.pass)+'"></div>'+
       '</div>'+
       '<div id="aUsersMsg" style="font-size:.8rem;color:var(--bad);margin:6px 0"></div>'+
-      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="auAdd">+ Kullanıcı ekle</button></div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="auAdd">'+(usersDraft.editing?'💾 Kaydet':'+ Kullanıcı ekle')+'</button>'+
+        (usersDraft.editing?'<button class="btn sm ghost" id="auCancel">Vazgeç</button>':'')+'</div>'+
     '</div>' : '')+
     '<textarea class="logbox" id="aCsvBox" readonly style="display:none;height:120px;margin-top:10px"></textarea>'+
     (cloudBusy && !recs.length
@@ -4190,16 +4205,29 @@ function renderAdmin(){
     var listEl=document.getElementById("aUsersList");
     if(!listEl) return;
     listEl.innerHTML='<span class="spin"></span>';
-    sbFetch(SB_URL+"/rest/v1/admin_users?select=username,display_name,created_at&order=created_at.asc", { headers:sbAdminHeaders() })
-      .then(function(r){ return r.ok ? r.json() : null; })
+    /* rank sütunu supabase-9 çalıştırılmadan önce yoksa select 400 döner — o zaman rank'siz tekrar dene. */
+    var fetchRows=function(withRank){
+      return sbFetch(SB_URL+"/rest/v1/admin_users?select=username,display_name,created_at"+(withRank?",rank":"")+"&order=created_at.asc", { headers:sbAdminHeaders() })
+        .then(function(r){ return r.ok ? r.json() : null; });
+    };
+    fetchRows(true).then(function(rows){ return rows ? rows : fetchRows(false); })
       .then(function(rows){
         if(!rows){ listEl.innerHTML='<div class="note warn">Liste okunamadı — admin_users tablosu kurulmamış olabilir (bkz. supabase-5-admin-kullanicilari.sql).</div>'; return; }
         if(!rows.length){ listEl.innerHTML='<div class="note">Henüz kullanıcı yok.</div>'; return; }
         listEl.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+rows.map(function(u){
           return '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:8px">'+
-            '<b style="flex:1">'+esc(u.display_name)+'</b><span style="color:var(--muted);font-family:var(--font-mono);font-size:.8rem">'+esc(u.username)+'</span>'+
+            '<b style="flex:1">'+esc(u.display_name)+(u.rank?' <span style="font-weight:500;color:var(--muted);font-size:.8rem">· '+esc(u.rank)+'</span>':'')+'</b>'+
+            '<span style="color:var(--muted);font-family:var(--font-mono);font-size:.8rem">'+esc(u.username)+'</span>'+
+            '<button class="btn sm ghost auEdit" data-u="'+esc(u.username)+'" data-n="'+esc(u.display_name)+'" data-r="'+esc(u.rank||"")+'">✏️ Düzenle</button>'+
             '<button class="btn sm ghost auDel" data-u="'+esc(u.username)+'" style="border-color:var(--bad);color:var(--bad)">Sil</button></div>';
         }).join("")+'</div>';
+        listEl.querySelectorAll(".auEdit").forEach(function(btn){
+          btn.onclick=function(){
+            usersDraft={ name:btn.getAttribute("data-n")||"", user:btn.getAttribute("data-u")||"", rank:btn.getAttribute("data-r")||"", pass:"", editing:btn.getAttribute("data-u")||"" };
+            renderAdmin();
+            setTimeout(function(){ var b=document.getElementById("aUsersBox"); if(b) b.scrollIntoView({behavior:"smooth", block:"start"}); var n=document.getElementById("auName"); if(n) n.focus(); }, 60);
+          };
+        });
         listEl.querySelectorAll(".auDel").forEach(function(btn){
           btn.onclick=function(){
             var un=btn.getAttribute("data-u");
@@ -4210,33 +4238,55 @@ function renderAdmin(){
         });
       });
   }
-  var auNameEl=document.getElementById("auName"), auUserEl=document.getElementById("auUser"), auPassEl=document.getElementById("auPass");
+  var auNameEl=document.getElementById("auName"), auUserEl=document.getElementById("auUser"), auPassEl=document.getElementById("auPass"), auRankEl=document.getElementById("auRank");
   if(auNameEl){
     auNameEl.oninput=function(){ usersDraft.name=auNameEl.value; };
     auUserEl.oninput=function(){ usersDraft.user=auUserEl.value; };
     auPassEl.oninput=function(){ usersDraft.pass=auPassEl.value; };
+    if(auRankEl) auRankEl.onchange=function(){ usersDraft.rank=auRankEl.value; };
   }
+  var auCancel=document.getElementById("auCancel");
+  if(auCancel) auCancel.onclick=function(){ usersDraft={name:"",user:"",pass:"",rank:"",editing:""}; renderAdmin(); };
   var auAdd=document.getElementById("auAdd");
   if(auAdd) auAdd.onclick=function(){
     var name=document.getElementById("auName").value.trim();
     var user=document.getElementById("auUser").value.trim().toLowerCase();
     var pass=document.getElementById("auPass").value;
+    var rank=(auRankEl && auRankEl.value) || "";
     var msg=document.getElementById("aUsersMsg");
+    var editing=usersDraft.editing;
+    var idleLabel=editing?"💾 Kaydet":"+ Kullanıcı ekle";
     msg.textContent="";
-    if(!name||!user||!pass){ msg.textContent="Görünen ad, kullanıcı adı ve şifre gerekli."; return; }
-    if(pass.length<4){ msg.textContent="Şifre en az 4 karakter olmalı."; return; }
-    var hash=h32(user+"|"+pass+"|inka-admin-user-v1");
+    if(!name||!user){ msg.textContent="Görünen ad ve kullanıcı adı gerekli."; return; }
+    if(!editing && !pass){ msg.textContent="Yeni kullanıcı için şifre gerekli."; return; }
+    if(pass && pass.length<4){ msg.textContent="Şifre en az 4 karakter olmalı."; return; }
     auAdd.textContent="…"; auAdd.disabled=true;
-    sbFetch(SB_URL+"/rest/v1/admin_users", {
-      method:"POST", headers:sbAdminHeaders({"Prefer":"return=minimal"}),
-      body:JSON.stringify({username:user, password_hash:hash, display_name:name, service_key:activeAdminKey()})
-    }).then(function(r){
-      auAdd.textContent="+ Kullanıcı ekle"; auAdd.disabled=false;
-      if(!r.ok){ msg.textContent="Eklenemedi — bu kullanıcı adı zaten var olabilir."; return; }
-      usersDraft={name:"",user:"",pass:""};
-      document.getElementById("auName").value=""; document.getElementById("auUser").value=""; document.getElementById("auPass").value="";
-      loadAdminUsersList();
-    }).catch(function(){ auAdd.textContent="+ Kullanıcı ekle"; auAdd.disabled=false; msg.textContent="Bağlantı hatası."; });
+    var done=function(ok, failText){
+      auAdd.textContent=idleLabel; auAdd.disabled=false;
+      if(!ok){ msg.textContent=failText; return; }
+      usersDraft={name:"",user:"",pass:"",rank:"",editing:""};
+      renderAdmin();
+    };
+    /* rank sütunu (supabase-9) henüz yoksa istek reddedilir — rank'siz tekrar dene ki
+       ekleme/düzenleme script çalıştırılmadan önce de bozulmasın. */
+    var send=function(body, withRank){
+      var b={}; for(var k in body) if(withRank || k!=="rank") b[k]=body[k];
+      return editing
+        ? sbFetch(SB_URL+"/rest/v1/admin_users?username=eq."+encodeURIComponent(editing), { method:"PATCH", headers:sbAdminHeaders({"Prefer":"return=minimal"}), body:JSON.stringify(b) })
+        : sbFetch(SB_URL+"/rest/v1/admin_users", { method:"POST", headers:sbAdminHeaders({"Prefer":"return=minimal"}), body:JSON.stringify(b) });
+    };
+    var body = editing
+      ? { display_name:name, rank:rank }
+      : { username:user, password_hash:h32(user+"|"+pass+"|inka-admin-user-v1"), display_name:name, rank:rank, service_key:activeAdminKey() };
+    if(editing && pass) body.password_hash=h32(editing+"|"+pass+"|inka-admin-user-v1");
+    send(body, true).then(function(r){
+      if(r.ok){ done(true); return; }
+      return send(body, false).then(function(r2){
+        if(!r2.ok){ done(false, editing?"Kaydedilemedi.":"Eklenemedi — bu kullanıcı adı zaten var olabilir."); return; }
+        done(true);
+        if(rank){ var m=document.getElementById("aUsersMsg"); if(m){ m.style.color="var(--warn)"; m.textContent="Kaydedildi ama görev saklanamadı — supabase-9-admin-gorev.sql'i çalıştırın."; } }
+      });
+    }).catch(function(){ done(false, "Bağlantı hatası."); });
   };
   app.querySelectorAll(".adm-table tbody tr").forEach(function(tr){
     var open=function(){ renderAdminDetail(recs[+tr.getAttribute("data-i")]); };
