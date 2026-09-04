@@ -17,9 +17,22 @@
     --coral:#c1502e; --coral-bg:#fbe9e1;
     --sky:#2f6fb0; --sky-bg:#e6eefb;
     --shadow:0 8px 28px rgba(11,42,73,.13);
+    --heading:var(--navy); --heading2:var(--navy2);
     --font-sans:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     --font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
     --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  }
+  /* Koyu mod: sadece ekran görünümünün ana renkleri (arkaplan/kart/metin/kenarlık) değişir —
+     sertifika/tutanak gibi yazdırılan belgeler her zaman açık renkte kalsın diye aşağıdaki
+     @media print bloğu koyu modu yazdırma sırasında bilerek geri alıyor. */
+  html.dark{
+    --bg:#12181f; --card:#1c242e; --ink:#e7edf3; --muted:#93a3b3; --line:#2b3540;
+    --heading:#d7e3f0; --heading2:#b7c9db;
+    --shadow:0 8px 28px rgba(0,0,0,.45); color-scheme:dark;
+  }
+  @media print{
+    html.dark{ --bg:#f4f6f9; --card:#ffffff; --ink:#182430; --muted:#586b7d; --line:#dde4ec;
+      --heading:var(--navy); --heading2:var(--navy2); color-scheme:light; }
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -29,7 +42,7 @@
   .wrap.admin-wide{max-width:1400px;padding:24px 28px 90px}
   .wrap.admin-wide .card{padding:28px 32px}
   #deckFrame:fullscreen, #deckFrame:-webkit-full-screen{height:100vh!important;background:#fff}
-  a{color:var(--navy2)}
+  a{color:var(--heading2)}
   :focus-visible{outline:3px solid var(--gold-l);outline-offset:2px;border-radius:4px}
 
   header.topbar{background:
@@ -44,12 +57,16 @@
   .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
   .langtoggle{display:flex;border:1px solid rgba(255,255,255,.4);border-radius:8px;overflow:hidden}
   .langtoggle button{background:transparent;color:#fff;border:0;padding:7px 12px;font-weight:600;font-size:.8rem;cursor:pointer;letter-spacing:.5px;font-family:var(--font-sans)}
-  .langtoggle button.active{background:var(--gold);color:var(--navy)}
+  .langtoggle button.active{background:var(--gold);color:var(--heading)}
   .iconbtn{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 10px;font-size:.95rem;cursor:pointer;line-height:1}
+  .menuwrap{position:relative}
+  .menudrop{position:absolute;right:0;top:calc(100% + 8px);min-width:180px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px;z-index:50}
+  .menudrop button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:7px;padding:9px 11px;font-size:.84rem;color:var(--ink);cursor:pointer;font-family:var(--font-sans)}
+  .menudrop button:hover{background:var(--bg)}
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:var(--shadow);margin-top:20px}
-  h2{margin:0 0 12px;font-size:1.3rem;color:var(--navy);font-family:var(--font-serif);font-weight:600;text-wrap:balance}
-  h3{margin:0 0 8px;font-size:1rem;color:var(--navy2);font-weight:600}
+  h2{margin:0 0 12px;font-size:1.3rem;color:var(--heading);font-family:var(--font-serif);font-weight:600;text-wrap:balance}
+  h3{margin:0 0 8px;font-size:1rem;color:var(--heading2);font-weight:600}
   p.lead{color:var(--muted);margin:0 0 16px;max-width:62ch}
   ul.rules{margin:0 0 8px;padding-left:20px}
   ul.rules li{margin:6px 0}
@@ -66,7 +83,7 @@
   .flow-steps .arrow{color:var(--line);font-size:1rem}
   .resume-card{position:relative;overflow:hidden;background:linear-gradient(120deg,var(--warn-bg),#fff 60%);
     border:1px solid #e6d3a3;border-radius:12px;padding:16px 18px;margin:14px 0}
-  .resume-card .rc-top{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--navy);margin-bottom:4px}
+  .resume-card .rc-top{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--heading);margin-bottom:4px}
   .resume-card .rc-ico{font-size:1.3rem}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
   @media(max-width:560px){.grid2{grid-template-columns:1fr}}
@@ -83,7 +100,7 @@
   .btn:active{transform:translateY(1px);box-shadow:0 2px 6px rgba(11,42,73,.2)}
   .btn.gold{background:linear-gradient(155deg,var(--gold-l),var(--gold));color:#402d08;box-shadow:0 2px 8px rgba(182,134,44,.35)}
   .btn.gold:hover{background:linear-gradient(155deg,var(--gold),var(--gold-d));color:#fff;box-shadow:0 6px 18px rgba(182,134,44,.4)}
-  .btn.ghost{background:transparent;color:var(--navy);border:1.5px solid var(--navy);box-shadow:none}
+  .btn.ghost{background:transparent;color:var(--heading);border:1.5px solid var(--navy);box-shadow:none}
   .btn.ghost:hover{background:#eef2f8;box-shadow:none;transform:translateY(-1px)}
   .btn.sm{padding:8px 14px;font-size:.85rem;min-height:36px}
   .btnrow{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
@@ -107,7 +124,7 @@
   .navgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin:16px 0 4px}
   @media(max-width:480px){.navgrid{grid-template-columns:repeat(5,1fr)}}
   .navgrid button{border:1px solid var(--line);background:#fbfcfe;border-radius:7px;padding:7px 0;font-size:.82rem;font-weight:600;cursor:pointer;color:var(--muted);font-family:var(--font-mono)}
-  .navgrid button.done{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .navgrid button.done{background:var(--navy);color:#fff;border-color:var(--heading)}
   .navgrid button.miss{border-color:var(--bad);color:var(--bad)}
 
   .q{border-top:1px solid var(--line);padding:18px 0}
@@ -116,14 +133,14 @@
   .q .qnum{color:var(--gold-d);font-weight:700;flex:0 0 auto;font-family:var(--font-mono)}
   .opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;cursor:pointer;background:#fbfcfe;transition:border-color .1s,background .1s;min-height:44px}
   .opt:hover{border-color:var(--gold)}
-  .opt.sel{border-color:var(--navy);background:#eef3fb}
+  .opt.sel{border-color:var(--heading);background:#eef3fb}
   .opt input{margin-top:3px;flex:0 0 auto;width:18px;height:18px}
-  .opt .ol{font-weight:700;color:var(--navy2);flex:0 0 auto;font-family:var(--font-mono)}
+  .opt .ol{font-weight:700;color:var(--heading2);flex:0 0 auto;font-family:var(--font-mono)}
   .q.unanswered .qhead .qnum::after{content:" •";color:var(--bad)}
 
   .result-badge{font-size:1rem;font-weight:700;padding:6px 14px;border-radius:99px;display:inline-block}
   .pass{background:var(--ok-bg);color:var(--ok)} .fail{background:var(--bad-bg);color:var(--bad)}
-  .bigscore{font-size:2.4rem;font-weight:700;color:var(--navy);margin:6px 0;font-family:var(--font-serif)}
+  .bigscore{font-size:2.4rem;font-weight:700;color:var(--heading);margin:6px 0;font-family:var(--font-serif)}
   .bigscore small{font-size:1rem;color:var(--muted);font-weight:500;font-family:var(--font-sans)}
 
   table.summary{width:100%;border-collapse:collapse;margin-top:8px;font-size:.92rem}
@@ -225,12 +242,12 @@
   .c-inner{position:relative;z-index:1}
   .c-top{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:6px}
   .c-logo{width:54px;height:54px;border-radius:10px;background:radial-gradient(circle at 30% 30%,var(--gold-l),var(--gold));display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:21px;font-family:var(--font-serif)}
-  .c-company{font-size:1.3rem;font-weight:700;color:var(--navy);letter-spacing:1px;font-family:var(--font-serif)}
+  .c-company{font-size:1.3rem;font-weight:700;color:var(--heading);letter-spacing:1px;font-family:var(--font-serif)}
   .c-sub{text-align:center;color:var(--muted);font-size:.86rem;margin-bottom:20px}
-  h1.c-title{text-align:center;font-size:1.6rem;color:var(--navy);margin:8px 0 4px;letter-spacing:3px;text-transform:uppercase;font-family:var(--font-serif);font-weight:600}
+  h1.c-title{text-align:center;font-size:1.6rem;color:var(--heading);margin:8px 0 4px;letter-spacing:3px;text-transform:uppercase;font-family:var(--font-serif);font-weight:600}
   .c-rule{width:84px;height:3px;background:var(--gold);margin:10px auto 20px}
   .c-text{text-align:center;font-size:.96rem;margin:0 auto 6px;max-width:60ch}
-  .c-name{font-size:2rem;font-weight:700;color:var(--navy2);margin:12px 0 6px;border-bottom:2px solid var(--gold);display:inline-block;padding:0 26px 6px;font-family:var(--font-serif)}
+  .c-name{font-size:2rem;font-weight:700;color:var(--heading2);margin:12px 0 6px;border-bottom:2px solid var(--gold);display:inline-block;padding:0 26px 6px;font-family:var(--font-serif)}
   .c-name-wrap{text-align:center}
   .c-areas{display:grid;grid-template-columns:1fr 1fr;column-gap:26px;row-gap:2px;margin:20px auto 12px;font-size:.84rem;max-width:660px}
   .c-areas div{padding:3px 0}
@@ -246,7 +263,7 @@
   /* ---- Record ---- */
   .rec-head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:2px solid var(--navy);padding-bottom:12px;margin-bottom:16px}
   .rec-head .c-company{font-size:1.05rem}
-  .rec-title{font-family:var(--font-serif);font-size:1.15rem;color:var(--navy);font-weight:600;letter-spacing:.5px}
+  .rec-title{font-family:var(--font-serif);font-size:1.15rem;color:var(--heading);font-weight:600;letter-spacing:.5px}
   .rec-kv{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:.86rem;margin-bottom:14px}
   .rec-kv div{padding:3px 0;border-bottom:1px dotted var(--line)}
   .rec-kv span{color:var(--muted)}
@@ -284,7 +301,7 @@
     background:conic-gradient(var(--gold) calc(var(--pct)*1%),var(--line) 0);
     display:flex;align-items:center;justify-content:center;position:relative}
   .ring::before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--card)}
-  .ring b{position:relative;z-index:1;font-family:var(--font-serif);font-size:1.05rem;color:var(--navy)}
+  .ring b{position:relative;z-index:1;font-family:var(--font-serif);font-size:1.05rem;color:var(--heading)}
   .pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:4px}
   .pick-section-h{margin:26px 0 14px;padding:12px 18px;border-radius:12px;font-size:1.05rem;font-weight:700;
     color:#fff;display:flex;align-items:center;gap:10px;letter-spacing:.2px;
@@ -313,11 +330,29 @@
   .pickcard .pc-st.fail{background:var(--bad-bg);color:var(--bad)}
   .pickcard .btn{margin-top:auto;align-self:stretch}
 
+  /* ---- sertifika listesi: modülün kendi ikon/rengiyle (bkz. MODICON) düzenli bir kart ızgarası ---- */
+  .certgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin:14px 0}
+  .certcard{position:relative;display:flex;flex-direction:column;gap:8px;background:var(--card);
+    border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-align:left;cursor:pointer;
+    font-family:var(--font-sans);transition:transform .15s,box-shadow .15s}
+  .certcard:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(11,42,73,.14)}
+  .certcard .cc-top{display:flex;align-items:center;gap:10px}
+  .certcard .cc-ico{width:36px;height:36px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;
+    justify-content:center;font-size:1.1rem;background:color-mix(in srgb,var(--mc,var(--navy)) 16%,transparent)}
+  .certcard .cc-badge{font-family:var(--font-mono);font-size:.72rem;color:var(--muted);font-weight:700;letter-spacing:.4px}
+  .certcard .cc-name{font-weight:600;font-size:.9rem;color:var(--ink);line-height:1.32}
+  .certcard .cc-score{align-self:flex-start;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:99px;
+    background:var(--ok-bg);color:var(--ok)}
+  .certcard .cc-go{margin-top:auto;padding-top:4px;font-size:.78rem;font-weight:600;color:var(--heading2)}
+  .certcard.grand{border-color:var(--gold);background:linear-gradient(160deg,var(--card),color-mix(in srgb,var(--gold-l) 22%,var(--card)))}
+  .certcard.grand .cc-ico{background:color-mix(in srgb,var(--gold-d) 20%,transparent)}
+  .certcard.grand .cc-score{background:var(--warn-bg);color:var(--warn)}
+
   /* ---- pass celebration banner ---- */
   .confetti-banner{position:relative;overflow:hidden;border-radius:14px;padding:18px 20px;margin:0 0 14px;
     background:linear-gradient(120deg,var(--teal-bg),var(--warn-bg) 55%,var(--ok-bg));
     border:1px solid var(--line);text-align:center;font-family:var(--font-serif);font-size:1.15rem;
-    font-weight:600;color:var(--navy)}
+    font-weight:600;color:var(--heading)}
   .confetti-banner .cf{position:absolute;top:-14px;font-size:1.1rem;animation:cf-fall 2.6s linear infinite;opacity:.9}
   @keyframes cf-fall{0%{transform:translateY(-20px) rotate(0deg);opacity:0}10%{opacity:1}100%{transform:translateY(150px) rotate(280deg);opacity:0}}
 
@@ -338,8 +373,8 @@
   @media(max-width:520px){.editgrid{grid-template-columns:1fr}}
   .filterchips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
   .chipbtn{border:1px solid var(--line);background:#fbfcfe;border-radius:99px;padding:5px 12px;font-size:.8rem;font-weight:600;cursor:pointer;color:var(--muted);font-family:inherit}
-  .chipbtn.on{background:var(--navy);color:#fff;border-color:var(--navy)}
-  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--navy);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
+  .chipbtn.on{background:var(--navy);color:#fff;border-color:var(--heading)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--heading);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
   @keyframes spin{to{transform:rotate(360deg)}}
   table.adm-table{font-size:.78rem}
   table.adm-table tbody tr{cursor:pointer}
@@ -431,6 +466,13 @@
       <div class="langtoggle" role="group" aria-label="Language">
         <button data-lang="tr" id="lgTr">TR</button>
         <button data-lang="en" id="lgEn">EN</button>
+      </div>
+      <div class="menuwrap">
+        <button class="iconbtn" id="menuBtn" title="Menü" aria-label="Menü" aria-haspopup="true" aria-expanded="false">☰</button>
+        <div class="menudrop" id="menuDrop" style="display:none" role="menu">
+          <button id="menuDark" role="menuitem"></button>
+          <button id="menuLogout" role="menuitem"></button>
+        </div>
       </div>
     </div>
   </div>
@@ -1792,6 +1834,40 @@ function setLang(l){ if(l===lang) return; lang=l; if(state) state.lang=l; try{ l
 document.getElementById("lgTr").onclick=function(){ setLang("tr"); };
 document.getElementById("lgEn").onclick=function(){ setLang("en"); };
 document.getElementById("logoBtn").onclick=function(){ renderAdmin(); window.scrollTo(0,0); };
+/* Koyu mod: tercih localStorage'da tutulur, <html> üstünde "dark" class'ı olarak uygulanır.
+   Yazdırma her zaman açık renkte kalır (yukarıdaki @media print bloğu). */
+var LS_THEME = "gsm_theme_v1";
+function applyTheme(){
+  var d=false; try{ d = localStorage.getItem(LS_THEME)==="dark"; }catch(e){}
+  document.documentElement.classList.toggle("dark", d);
+  var mb=document.getElementById("menuDark");
+  if(mb) mb.textContent = d ? (lang==="en"?"☀️ Light mode":"☀️ Açık Mod") : (lang==="en"?"🌙 Dark mode":"🌙 Koyu Mod");
+}
+function toggleTheme(){
+  var d=false; try{ d = localStorage.getItem(LS_THEME)==="dark"; }catch(e){}
+  try{ localStorage.setItem(LS_THEME, d?"light":"dark"); }catch(e){}
+  applyTheme();
+}
+applyTheme();
+(function(){
+  var mBtn=document.getElementById("menuBtn"), mDrop=document.getElementById("menuDrop");
+  function closeMenu(){ mDrop.style.display="none"; mBtn.setAttribute("aria-expanded","false"); }
+  function openMenu(){
+    var lo=document.getElementById("menuLogout");
+    lo.textContent = lang==="en" ? "🚪 Sign out" : "🚪 Çıkış Yap";
+    applyTheme();
+    mDrop.style.display="block"; mBtn.setAttribute("aria-expanded","true");
+  }
+  mBtn.onclick=function(ev){ ev.stopPropagation(); if(mDrop.style.display==="none") openMenu(); else closeMenu(); };
+  document.addEventListener("click", function(ev){ if(!mDrop.contains(ev.target) && ev.target!==mBtn) closeMenu(); });
+  document.getElementById("menuDark").onclick=function(){ toggleTheme(); };
+  document.getElementById("menuLogout").onclick=function(){
+    closeMenu();
+    if(isAdminAuthed()) logoutAdmin();
+    renderLoginGate();
+    window.scrollTo(0,0);
+  };
+})();
 (function(){
   /* Yönetici butonu artık genel (paylaşılan) sitede de görünür — kullanıcı adı+şifresi olan
      herhangi bir yönetici, dosyaya ihtiyaç duymadan doğrudan buradan giriş yapabilir. Yeni
@@ -2830,8 +2906,8 @@ function renderCertList(){
   var total=rec.moduleCount || mods.length;
   var allPass = passed.length===total && passed.length>0;
   var cards=passed.map(function(m){
-    return '<button class="certcard" data-mc="'+esc(m.code)+'">'+
-      '<span class="cc-badge">'+esc(m.code)+'</span>'+
+    return '<button class="certcard" data-mc="'+esc(m.code)+'" style="--mc:'+modColor(m.code)+'">'+
+      '<div class="cc-top"><span class="cc-ico">'+modIcon(m.code)+'</span><span class="cc-badge">'+esc(m.code)+'</span></div>'+
       '<span class="cc-name">'+esc(m.name)+'</span>'+
       '<span class="cc-score">'+m.correct+'/20 · '+t.pPass+'</span>'+
       '<span class="cc-go">'+t.certOpen+' →</span></button>';
@@ -2839,7 +2915,7 @@ function renderCertList(){
   app.innerHTML='<div class="card"><h2>'+t.certsTitle+'</h2>'+
     '<p class="lead">'+t.candLine(esc(rec.name), (rec.sicil?" · "+esc(rec.sicil):"")+(rec.vessel?" · "+esc(rec.vessel):""))+'</p>'+
     '<p class="lead">'+t.certsLead(passed.length, total)+'</p>'+
-    (allPass?'<button class="certcard grand" id="ccGrand"><span class="cc-badge">★</span>'+
+    (allPass?'<button class="certcard grand" id="ccGrand"><div class="cc-top"><span class="cc-ico">🏆</span><span class="cc-badge">★</span></div>'+
       '<span class="cc-name">'+t.grandCertName(total)+'</span>'+
       '<span class="cc-score">'+t.grandCertHint+'</span><span class="cc-go">'+t.certOpen+' →</span></button>':'')+
     (passed.length?'<div class="certgrid">'+cards+'</div>':'<div class="note">'+t.certsNone+'</div>')+
@@ -3328,7 +3404,7 @@ function renderModChart(liveRecs){
       '<span class="mc-pct">'+pct+'% <span style="color:var(--muted);font-weight:400">('+s.pass+'/'+s.total+')</span></span>'+
       '</div>';
   }).join("");
-  return '<details class="note" style="padding:12px 14px"><summary style="cursor:pointer;font-weight:600;color:var(--navy)">'+
+  return '<details class="note" style="padding:12px 14px"><summary style="cursor:pointer;font-weight:600;color:var(--heading)">'+
     (lang==="en"?"Pass rate by module":"Modül bazında geçme oranı")+'</summary>'+
     '<div class="modchart" style="margin-top:12px">'+rows+'</div></details>';
 }
