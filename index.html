@@ -510,6 +510,43 @@ function adminLoginRPC(username, password, cb){
     cb(rows && rows.length ? rows[0] : null);
   }).catch(function(){ cb(null); });
 }
+/* Crew List'ten oluşturulan adaylar için ayrı giriş — admin_users ile aynı hash yöntemi ama
+   apayrı bir tuz (v1 sabiti farklı) ve apayrı bir tablo/fonksiyon: bu hesaplar service_role
+   anahtarı İÇERMEZ, sadece sınav ekranına (kayıt/devam) erişim verir, Yönetici paneline değil. */
+function candidateLoginRPC(username, password, cb){
+  var hash=h32(String(username).trim().toLowerCase()+"|"+String(password)+"|inka-candidate-user-v1");
+  sbFetch(SB_URL+"/rest/v1/rpc/candidate_login", {
+    method:"POST", headers:sbAnonHeaders(), body:JSON.stringify({p_username:String(username).trim().toLowerCase(), p_password_hash:hash})
+  }).then(function(r){ return r.ok ? r.json() : null; }).then(function(rows){
+    cb(rows && rows.length ? rows[0] : null);
+  }).catch(function(){ cb(null); });
+}
+function candidatePasswordHash(username, password){
+  return h32(String(username).trim().toLowerCase()+"|"+String(password)+"|inka-candidate-user-v1");
+}
+/* "Ad Soyad" -> "a.soyad" biçiminde okunaklı bir kullanıcı adı üretir (Türkçe karakterleri
+   ASCII'ye çevirir); aynı üretimde aynı kullanıcı adı ikinci kez çıkarsa sonuna 2,3.. eklenir. */
+function slugifyTr(s){
+  var map={"ç":"c","Ç":"c","ğ":"g","Ğ":"g","ı":"i","İ":"i","ö":"o","Ö":"o","ş":"s","Ş":"s","ü":"u","Ü":"u"};
+  return String(s||"").replace(/[çÇğĞıİöÖşŞüÜ]/g, function(c){ return map[c]||c; })
+    .toLowerCase().replace(/[^a-z0-9]+/g,"");
+}
+function genCandidateUsername(fullName, used){
+  var words=String(fullName||"").trim().split(/\s+/).filter(Boolean);
+  var first=slugifyTr(words[0]||"aday"), last=slugifyTr(words[words.length-1]||"");
+  var base=(first.charAt(0)||"a")+(last?("."+last):"");
+  if(!base || base==".") base="aday";
+  var u=base, n=2;
+  while(used[u]){ u=base+n; n++; }
+  used[u]=true;
+  return u;
+}
+/* Kolayca sözle iletilebilecek basit bir şifre üretir (karışan karakterler hariç: 0/O, 1/I/l). */
+function genCandidatePassword(){
+  var chars="ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  var out=""; for(var i=0;i<6;i++) out+=chars.charAt(Math.floor(Math.random()*chars.length));
+  return out;
+}
 var LS_ADMIN_NAME = "gsm_admin_name_v1";
 function setServiceKey(k){
   k = (k||"").trim(); if(!k) return false;
@@ -3353,6 +3390,8 @@ function buildCrewHtmlReport(vessel, people, base){
       '<td>'+esc(p.name)+'</td>'+
       '<td>'+esc(p.rank||p.rankRaw||"—")+'</td>'+
       '<td class="c">'+esc(p.sicil||"—")+'</td>'+
+      '<td class="c" style="font-family:Consolas,monospace">'+esc(p.username||"—")+'</td>'+
+      '<td class="c" style="font-family:Consolas,monospace">'+esc(p.password||"—")+'</td>'+
       '<td class="linkcell"><a href="'+esc(link)+'" target="_blank">'+esc(link)+'</a>'+
         '<button class="cp" data-link="'+esc(link)+'">Kopyala</button></td>'+
     '</tr>';
@@ -3376,8 +3415,8 @@ function buildCrewHtmlReport(vessel, people, base){
     '@media print{ button.cp{display:none} body{padding:0} }'+
     '</style></head><body>'+
     '<h1>'+esc(vessel||"Mürettebat")+' — Kişi Bazlı Sınav/Sunum Linkleri</h1>'+
-    '<div class="sub">'+people.length+' personel · her link ilgili kişinin adını, rütbesini, gemisini ve seaman\'s book no\'sunu önceden doldurur. Kişi linki kendi açar, bilgilerini kontrol eder, beyanı onaylar ve sunum + sınavı KENDİSİ tamamlar.</div>'+
-    '<table><thead><tr><th>No</th><th>Ad Soyad</th><th>Rütbe</th><th>Seaman\'s Book No</th><th>Kişiye Özel Link</th></tr></thead>'+
+    '<div class="sub">'+people.length+' personel · her kişi ya kendi kullanıcı adı+şifresiyle inkaacademy.github.io adresinden giriş yapabilir, ya da kendine özel linki açabilir — ikisi de aynı kayda gider. Kendi bilgilerini kontrol eder, beyanı onaylar ve sunum + sınavı KENDİSİ tamamlar.</div>'+
+    '<table><thead><tr><th>No</th><th>Ad Soyad</th><th>Rütbe</th><th>Seaman\'s Book No</th><th>Kullanıcı Adı</th><th>Şifre</th><th>Kişiye Özel Link</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table>'+
     '<div class="note">⚠ Bu linkler sadece kayıt formunu ön dolduruyor — sınav sonucu/sertifika, linki AÇAN kişi gerçekten sunumu izleyip sınavı çözdüğünde oluşur. Otomatik "geçti" işareti yoktur.</div>'+
     '<scr'+'ipt>document.querySelectorAll(".cp").forEach(function(b){b.onclick=function(){var v=b.getAttribute("data-link");'+
@@ -3396,89 +3435,81 @@ function crewLinkFor(base, name, rank, vessel, sicil, aid){
     "&aid="+encodeURIComponent(aid||"");
 }
 
+/* Tek giriş ekranı — hem admin hem aday buradan girer, hangi hesap eşleşirse oraya gider.
+   Adminler için: kullanıcı adı+şifre eşleşirse DOĞRUDAN panel açılır — ayrıca yerel PIN
+   SORULMAZ (eski adminUnlocked/PIN katmanı kaldırıldı, gerçek hesap girişi onun yerini alır).
+   Adaylar için: candidate_login eşleşirse o kişinin bilgileriyle sınav ekranına (kaldığı
+   yerden devam veya ön dolu kayıt) gidilir — bu hesapların Yönetici paneline hiçbir erişimi
+   yoktur (service_role anahtarı içermezler). Ham service_role anahtarı yapıştırma (ilk kurulum)
+   ve yeni admin hesabı açma sadece özel yönetici dosyasında (ADMIN_UI) gösterilir. */
+function renderLoginGate(){
+  stopTimer(); certEl.style.display="none"; recEl.style.display="none";
+  var t=T();
+  app.innerHTML='<div class="card verify-panel"><h2>'+t.adminTitle+'</h2>'+
+    '<p class="lead" style="font-size:.86rem">Kullanıcı adı ve şifrenizle giriş yapın.'+
+    (ADMIN_UI ? ' İlk kurulumda henüz kullanıcı yoksa, aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "🔐 Kullanıcılar" bölümünden kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.' : '')+
+    '</p>'+
+    '<label class="fld" for="aluUser">Kullanıcı adı</label><input type="text" id="aluUser" autocomplete="username" autocapitalize="off">'+
+    '<label class="fld" for="aluPass">Şifre</label><input type="password" id="aluPass" autocomplete="current-password">'+
+    '<div class="note warn" id="aluErr" style="display:none"></div>'+
+    '<div class="btnrow"><button class="btn" id="aluGo">Giriş yap</button>'+
+    (ADMIN_UI ? '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">service_role anahtarıyla gir</button>' : '')+'</div>'+
+    (ADMIN_UI ? '<div id="asbkBox" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">'+
+      '<label class="fld" for="asbk">service_role anahtarı (ilk kurulum)</label>'+
+      '<input type="password" id="asbk" autocomplete="off" spellcheck="false" placeholder="eyJhbGciOi... veya sb_secret_...">'+
+      '<div class="note warn" id="asbkErr" style="display:none"></div>'+
+      '<div class="btnrow"><button class="btn" id="asbkGo">Kaydet ve aç</button></div>'+
+    '</div>' : '')+
+    (state ? '<div class="btnrow" style="margin-top:14px"><button class="btn ghost" id="asbkBack">'+t.backApp+'</button></div>' : '')+
+  '</div>';
+  var asbkBack=document.getElementById("asbkBack"); if(asbkBack) asbkBack.onclick=adminBack;
+  var asbkToggle=document.getElementById("asbkToggle");
+  if(asbkToggle) asbkToggle.onclick=function(){
+    var b=document.getElementById("asbkBox"); b.style.display=b.style.display==="none"?"block":"none";
+  };
+  document.getElementById("aluGo").onclick=function(){
+    var u=document.getElementById("aluUser").value.trim(), p=document.getElementById("aluPass").value;
+    var e=document.getElementById("aluErr"), btn=document.getElementById("aluGo");
+    if(!u || !p){ e.style.display="block"; e.textContent="Kullanıcı adı ve şifre gerekli."; return; }
+    e.style.display="none"; btn.textContent="…"; btn.disabled=true;
+    adminLoginRPC(u, p, function(res){
+      if(res){
+        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); }catch(err){}
+        if(ADMIN_UI) setServiceKey(res.service_key); else setAdminKey(res.service_key);
+        adminUnlocked=true; cloudCache=null; cloudFails=0;
+        if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
+        renderAdmin();
+        return;
+      }
+      candidateLoginRPC(u, p, function(cres){
+        btn.textContent="Giriş yap"; btn.disabled=false;
+        if(!cres){ e.style.display="block"; e.textContent="Kullanıcı adı veya şifre hatalı."; return; }
+        var prefill={name:cres.display_name||"", rank:cres.rank||"", vessel:cres.vessel||"", sicil:cres.sicil||"", aid:cres.attempt_id||""};
+        fetchExamStateByAid(prefill.aid, function(cloudState){
+          if(cloudState){ state=cloudState; save(); render(); window.scrollTo(0,0); }
+          else { renderIntro(null, prefill); }
+        });
+      });
+    });
+  };
+  var asbkGo=document.getElementById("asbkGo");
+  if(asbkGo) asbkGo.onclick=function(){
+    var v=document.getElementById("asbk").value, e=document.getElementById("asbkErr");
+    if((v||"").trim().length<20){ e.style.display="block"; e.textContent="Anahtar çok kısa görünüyor."; return; }
+    setServiceKey(v); adminUnlocked=true; cloudCache=null; cloudFails=0;
+    if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
+    renderAdmin();
+  };
+  var uf=document.getElementById("aluUser"); if(uf) uf.focus();
+}
 function renderAdmin(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   document.getElementById("footNote").style.display="none";
   var mw=document.getElementById("mainWrap"); if(mw) mw.classList.add("admin-wide");
-  var t=T(), a=loadAdmin();
+  var t=T();
+  if(isAdminAuthed()) adminUnlocked=true;
 
-  if(!adminUnlocked){
-    var setup=!a.pinHash;
-    app.innerHTML='<div class="card verify-panel"><h2>'+t.adminTitle+'</h2>'+
-      '<p class="lead" style="font-size:.86rem">'+(setup?t.adminSetupLead:t.adminGateLead)+'</p>'+
-      '<label class="fld" for="apin">'+t.adminPin+'</label><input type="password" id="apin" autocomplete="off">'+
-      (setup?'<label class="fld" for="apin2">'+t.adminPin2+'</label><input type="password" id="apin2" autocomplete="off">':'')+
-      '<div class="note warn" id="aerr" style="display:none"></div>'+
-      '<div class="btnrow"><button class="btn" id="aGo">'+(setup?t.adminSetBtn:t.adminOpenBtn)+'</button>'+
-      '<button class="btn ghost" id="aBack">'+t.backApp+'</button></div></div>';
-    document.getElementById("aBack").onclick=adminBack;
-    document.getElementById("aGo").onclick=function(){
-      var p=document.getElementById("apin").value, err=document.getElementById("aerr");
-      if(setup){
-        if((p||"").length<4){ err.style.display="block"; err.textContent=t.adminPinShort; return; }
-        if(p!==document.getElementById("apin2").value){ err.style.display="block"; err.textContent=t.adminPinMismatch; return; }
-        a.pinHash=pinHashOf(p); saveAdmin(a); adminUnlocked=true; renderAdmin(); return;
-      }
-      if(pinHashOf(p)===a.pinHash){ adminUnlocked=true; renderAdmin(); }
-      else { err.style.display="block"; err.textContent=t.adminPinWrong; }
-    };
-    var pf=document.getElementById("apin"); if(pf) pf.focus();
-    return;
-  }
-
-  /* Giriş ekranı: hem yönetici dosyasında (bulut anahtarı henüz girilmemişse) hem de genel
-     (yayınlanan) sitede — kullanıcı adı+şifre girişi HER İKİSİNDE de çalışır; ham service_role
-     anahtarını yapıştırma seçeneği ve yeni kullanıcı oluşturma ise sadece özel yönetici
-     dosyasında (ADMIN_UI) gösterilir — böylece yeni admin hesabı açmak yine sadece asıl
-     sahipte kalır, ama var olan bir hesapla giriş yapmak için dosyaya ihtiyaç yoktur. */
-  if(!isAdminAuthed()){
-    app.innerHTML='<div class="card verify-panel"><h2>'+t.adminTitle+'</h2>'+
-      '<p class="lead" style="font-size:.86rem">Kullanıcı adı ve şifrenizle giriş yapın.'+
-      (ADMIN_UI ? ' İlk kurulumda henüz kullanıcı yoksa, aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "🔐 Kullanıcılar" bölümünden kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.' : '')+
-      '</p>'+
-      '<label class="fld" for="aluUser">Kullanıcı adı</label><input type="text" id="aluUser" autocomplete="username" autocapitalize="off">'+
-      '<label class="fld" for="aluPass">Şifre</label><input type="password" id="aluPass" autocomplete="current-password">'+
-      '<div class="note warn" id="aluErr" style="display:none"></div>'+
-      '<div class="btnrow"><button class="btn" id="aluGo">Giriş yap</button>'+
-      (ADMIN_UI ? '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">service_role anahtarıyla gir</button>' : '')+'</div>'+
-      (ADMIN_UI ? '<div id="asbkBox" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">'+
-        '<label class="fld" for="asbk">service_role anahtarı (ilk kurulum)</label>'+
-        '<input type="password" id="asbk" autocomplete="off" spellcheck="false" placeholder="eyJhbGciOi... veya sb_secret_...">'+
-        '<div class="note warn" id="asbkErr" style="display:none"></div>'+
-        '<div class="btnrow"><button class="btn" id="asbkGo">Kaydet ve aç</button></div>'+
-      '</div>' : '')+
-      '<div class="btnrow" style="margin-top:14px"><button class="btn ghost" id="asbkBack">'+t.backApp+'</button></div></div>';
-    document.getElementById("asbkBack").onclick=adminBack;
-    var asbkToggle=document.getElementById("asbkToggle");
-    if(asbkToggle) asbkToggle.onclick=function(){
-      var b=document.getElementById("asbkBox"); b.style.display=b.style.display==="none"?"block":"none";
-    };
-    document.getElementById("aluGo").onclick=function(){
-      var u=document.getElementById("aluUser").value.trim(), p=document.getElementById("aluPass").value;
-      var e=document.getElementById("aluErr"), btn=document.getElementById("aluGo");
-      if(!u || !p){ e.style.display="block"; e.textContent="Kullanıcı adı ve şifre gerekli."; return; }
-      e.style.display="none"; btn.textContent="…"; btn.disabled=true;
-      adminLoginRPC(u, p, function(res){
-        btn.textContent="Giriş yap"; btn.disabled=false;
-        if(!res){ e.style.display="block"; e.textContent="Kullanıcı adı veya şifre hatalı."; return; }
-        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); }catch(err){}
-        if(ADMIN_UI) setServiceKey(res.service_key); else setAdminKey(res.service_key);
-        cloudCache=null; cloudFails=0;
-        if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
-        renderAdmin();
-      });
-    };
-    var asbkGo=document.getElementById("asbkGo");
-    if(asbkGo) asbkGo.onclick=function(){
-      var v=document.getElementById("asbk").value, e=document.getElementById("asbkErr");
-      if((v||"").trim().length<20){ e.style.display="block"; e.textContent="Anahtar çok kısa görünüyor."; return; }
-      setServiceKey(v); cloudCache=null; cloudFails=0;
-      if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
-      renderAdmin();
-    };
-    var uf=document.getElementById("aluUser"); if(uf) uf.focus();
-    return;
-  }
+  if(!isAdminAuthed()){ renderLoginGate(); return; }
 
   if(isAdminAuthed() && adminPoll===null){
     var tick=function(){
@@ -3592,7 +3623,6 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
       '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
-      '<button class="btn sm ghost" id="aPin">🔑 '+t.admChangePin+'</button>'+
       '<button class="btn sm ghost" id="aSbKey">'+(ADMIN_UI?'☁ Bulut anahtarı':'🔑 Çıkış yap')+'</button>'+
       '<button class="btn sm ghost" id="aClear" style="border-color:var(--bad);color:var(--bad)">🗑 '+t.admClear+'</button>'+
       '<button class="btn sm ghost" id="aBack2">'+t.backApp+'</button>'+
@@ -3718,7 +3748,6 @@ function renderAdmin(){
   })();
   var aRef=document.getElementById("aRefresh");
   if(aRef) aRef.onclick=function(){ this.textContent="…"; cloudFails=0; if(adminPoll){clearInterval(adminPoll);adminPoll=null;} refreshCloud(function(){ renderAdmin(); }); };
-  document.getElementById("aPin").onclick=function(){ adminUnlocked=false; saveAdmin({}); if(adminPoll){clearInterval(adminPoll);adminPoll=null;} renderAdmin(); };
   var aSbKeyBtn=document.getElementById("aSbKey");
   if(aSbKeyBtn) aSbKeyBtn.onclick=function(){
     if(confirm("Çıkış yapıp yeniden giriş yapmak (veya farklı kullanıcı ile girmek) ister misiniz?")){
@@ -3770,7 +3799,10 @@ function renderAdmin(){
           '<td><select class="crewRankSel" data-i="'+i+'" style="font-size:.78rem">'+rankOpts+'</select>'+
             (p.rank?"":'<div style="font-size:.7rem;color:var(--bad)">'+esc(p.rankRaw)+'</div>')+'</td>'+
           '<td style="font-family:var(--font-mono);font-size:.76rem">'+esc(p.sicil||"—")+'</td>'+
-          '<td style="max-width:280px"><input type="text" class="crewLinkInp" readonly value="'+esc(link)+'" '+
+          '<td style="font-family:var(--font-mono);font-size:.78rem;white-space:nowrap">'+esc(p.username||"—")+
+            (p.savedToCloud?' <span style="color:var(--ok)" title="Kaydedildi">✓</span>':'')+'</td>'+
+          '<td style="font-family:var(--font-mono);font-size:.78rem;white-space:nowrap">'+esc(p.password||"—")+'</td>'+
+          '<td style="max-width:220px"><input type="text" class="crewLinkInp" readonly value="'+esc(link)+'" '+
             'style="width:100%;font-family:var(--font-mono);font-size:.7rem;border:1px solid var(--line);border-radius:6px;padding:4px 6px" onclick="this.select()"></td>'+
           '<td><button class="btn sm ghost crewCopyBtn" data-i="'+i+'">'+t.crewCopyOne+'</button></td>'+
         '</tr>';
@@ -3778,13 +3810,40 @@ function renderAdmin(){
       wrapEl.innerHTML=
         '<div style="font-size:.82rem;color:var(--ok);margin:8px 0">'+t.crewFound(people.length)+'</div>'+
         '<div class="btnrow" style="margin-top:0">'+
+          '<button class="btn gold" id="crewSaveAccounts">🚀 Hesapları oluştur (giriş bilgileri)</button>'+
           '<button class="btn sm" id="crewCopyAll">📋 '+t.crewCopyAll+'</button>'+
           '<button class="btn sm" id="crewDlHtml">⬇️ '+t.crewDlHtml+'</button>'+
           '<button class="btn sm ghost" id="crewDlCsv">⬇️ '+t.crewDlCsv+'</button>'+
         '</div>'+
+        '<div id="crewSaveMsg" style="font-size:.8rem;color:var(--muted);margin-top:4px"></div>'+
         '<div style="overflow-x:auto;margin-top:8px"><table class="rec crew-table"><thead><tr>'+
-          '<th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.recFields.sicil+'</th><th>Link</th><th></th>'+
+          '<th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.recFields.sicil+'</th><th>Kullanıcı adı</th><th>Şifre</th><th>Link</th><th></th>'+
         '</tr></thead><tbody>'+rowsHtml+'</tbody></table></div>';
+      var crewSaveBtn=document.getElementById("crewSaveAccounts");
+      if(crewSaveBtn) crewSaveBtn.onclick=function(){
+        var saveMsg=document.getElementById("crewSaveMsg");
+        if(!isAdminAuthed()){ saveMsg.style.color="var(--bad)"; saveMsg.textContent="Önce giriş yapmalısınız."; return; }
+        crewSaveBtn.textContent="…"; crewSaveBtn.disabled=true; saveMsg.textContent="";
+        var rows=people.map(function(p){
+          return {
+            username:p.username, password_hash:candidatePasswordHash(p.username, p.password),
+            display_name:p.name, rank:p.rank||"", vessel:vessel||"", sicil:p.sicil||"", attempt_id:p.attemptId
+          };
+        });
+        sbFetch(SB_URL+"/rest/v1/candidate_users", {
+          method:"POST", headers:sbAdminHeaders({"Prefer":"resolution=merge-duplicates,return=minimal"}),
+          body:JSON.stringify(rows)
+        }).then(function(r){
+          crewSaveBtn.textContent="🚀 Hesapları oluştur (giriş bilgileri)"; crewSaveBtn.disabled=false;
+          if(!r.ok){ saveMsg.style.color="var(--bad)"; saveMsg.textContent="Kaydedilemedi — candidate_users tablosu kurulmamış olabilir (bkz. supabase-7-aday-girisleri.sql)."; return; }
+          people.forEach(function(p){ p.savedToCloud=true; });
+          saveMsg.style.color="var(--ok)"; saveMsg.textContent=people.length+" hesap oluşturuldu/güncellendi.";
+          renderResults();
+        }).catch(function(){
+          crewSaveBtn.textContent="🚀 Hesapları oluştur (giriş bilgileri)"; crewSaveBtn.disabled=false;
+          saveMsg.style.color="var(--bad)"; saveMsg.textContent="Bağlantı hatası.";
+        });
+      };
       wrapEl.querySelectorAll(".crewRankSel").forEach(function(sel){
         sel.onchange=function(){ people[+sel.getAttribute("data-i")].rank=sel.value; renderResults(); };
       });
@@ -3802,9 +3861,9 @@ function renderAdmin(){
       var dlBtn=document.getElementById("crewDlCsv");
       if(dlBtn) dlBtn.onclick=function(){
         var csvEsc=function(s){ s=String(s==null?"":s); return /[",\n]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s; };
-        var lines=["Ad Soyad,Rütbe,Seaman's Book No,Link"];
+        var lines=["Ad Soyad,Rütbe,Seaman's Book No,Kullanıcı Adı,Şifre,Link"];
         people.forEach(function(p){
-          lines.push([p.name,p.rank,p.sicil,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId)].map(csvEsc).join(","));
+          lines.push([p.name,p.rank,p.sicil,p.username,p.password,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId)].map(csvEsc).join(","));
         });
         download((vessel||"crew")+" - sinav linkleri.csv", lines.join("\r\n"), "text/csv;charset=utf-8");
       };
@@ -3835,6 +3894,12 @@ function renderAdmin(){
               vNorm=canon||vNorm;
               vesselEl.value=vNorm; crewState.vessel=vNorm;
             }
+            var usedU={};
+            res.people.forEach(function(p){
+              p.username=genCandidateUsername(p.name, usedU);
+              p.password=genCandidatePassword();
+              p.savedToCloud=false;
+            });
             crewState.people=res.people; msgEl.textContent=""; renderResults();
           }catch(err){ msgEl.textContent=t.crewNoRows; }
         };
@@ -4100,7 +4165,14 @@ function bootNormal(){
   if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil")||qp.has("aid"))){
     prefill={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||""};
   }
-  renderIntro(saved && saved.phase ? saved : null, prefill);
+  /* Bu cihazda zaten yarım kalmış bir ilerleme varsa (kaydolmuş/başlamış), kimliği ne olursa
+     olsun devam edilmesine izin verilir — buradaki asıl kısıt, hiçbir yerel ilerlemesi VE
+     kişiye özel bir linki (prefill/aid) OLMAYAN çıplak bir ziyaretin doğrudan boş kayıt
+     formuna düşmesini engellemektir: böyle bir ziyaretçi önce giriş yapmak zorunda kalır
+     (admin hesabıyla panele, aday hesabıyla kendi sınavına yönlendirilir). */
+  if(saved && saved.phase){ renderIntro(saved, prefill); }
+  else if(prefill){ renderIntro(null, prefill); }
+  else { renderLoginGate(); }
 }
 if(qp && qp.has("verify")){
   renderVerify(qp.get("verify"));
