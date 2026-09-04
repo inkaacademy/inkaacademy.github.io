@@ -471,6 +471,12 @@ var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
    (adminPoll / ilk refreshCloud) her tetiklendiğinde renderAdmin() paneli baştan çiziyor — bu
    nesne olmasa yükleme sırasında/incelerken açık kutu ve ayrıştırılmış liste kaybolurdu. */
 var crewState = { open:false, people:null, vessel:"" };
+/* "🔐 Kullanıcılar" kutusunun açık/kapalı durumu da renderAdmin() dışında tutulur — aynı
+   crewState nedeniyle: bulut otomatik yenilemesi (20 sn'de bir) paneli baştan çizince bu
+   kutu kapanıp formda yazılanlar kayboluyor, kullanıcı bunu "sistem beni geri atıyor" olarak
+   yaşıyordu. */
+var usersBoxOpen = false;
+var usersDraft = { name:"", user:"", pass:"" };
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
 var SB_URL   = "https://hoauaumaooxgtmjxxelq.supabase.co";
@@ -512,6 +518,26 @@ function setServiceKey(k){
   return true;
 }
 function clearServiceKey(){ SB_KEY=""; SB_ON=false; cloudCache=null; try{ localStorage.removeItem(LS_SBKEY); }catch(e){} }
+/* Genel/yayınlanan siteye giriş yapan bir yönetici için AYRI bir anahtar yuvası — SB_KEY'i
+   ASLA ezmez, çünkü SB_KEY genel sitede adayların sınav sonucu YAZMASI için gereken (zayıf,
+   sadece INSERT/UPDATE yapabilen) anahtardır; onu bir yöneticinin service_role anahtarıyla
+   değiştirirsek çıkış yapıldığında (veya sayfa aynı sekmede kalırsa) adaylar için yazma
+   bozulurdu. Yönetici dosyasında (ADMIN_UI=true) bu ayrım gerekmez, orada SB_KEY zaten
+   sadece yöneticiye özeldir — bu yüzden activeAdminKey() dosya tipine göre doğru olanı seçer. */
+var LS_ADMIN_KEY = "gsm_admin_key_v1";
+var ADMIN_KEY = "";
+try{ var _ak0 = localStorage.getItem(LS_ADMIN_KEY); if(_ak0) ADMIN_KEY = _ak0; }catch(e){}
+function setAdminKey(k){ k=(k||"").trim(); if(!k) return false; ADMIN_KEY=k; try{ localStorage.setItem(LS_ADMIN_KEY,k); }catch(e){} return true; }
+function clearAdminKey(){ ADMIN_KEY=""; cloudCache=null; try{ localStorage.removeItem(LS_ADMIN_KEY); }catch(e){} }
+function activeAdminKey(){ return ADMIN_UI ? SB_KEY : ADMIN_KEY; }
+function isAdminAuthed(){ return !!activeAdminKey(); }
+function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); }catch(e){} }
+function sbAdminHeaders(extra){
+  var k=activeAdminKey();
+  var h={ "apikey":k, "Authorization":"Bearer "+k, "Content-Type":"application/json" };
+  if(extra) for(var x in extra) h[x]=extra[x];
+  return h;
+}
 var cloudCache = null, cloudLastSync = 0, cloudError = false, cloudFails = 0, adminPoll = null;
 function sbHeaders(extra){
   var h={ "apikey":SB_KEY, "Authorization":"Bearer "+SB_KEY, "Content-Type":"application/json" };
@@ -546,14 +572,16 @@ function sbSave(baseRow, patch){
   return sbInsert(baseRow).then(function(){ return sbUpdate(baseRow.attempt_id, patch||{}); });
 }
 function sbFetchAll(){
-  if(!SB_ON) return Promise.resolve(null);
-  return sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?select=*&order=updated_at.desc&limit=3000",{ headers:sbHeaders() })
+  if(!isAdminAuthed()) return Promise.resolve(null);
+  return sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?select=*&order=updated_at.desc&limit=3000",{ headers:sbAdminHeaders() })
     .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
 }
-function sbUpdate(attemptId, patch){
+/* hdrs verilirse (yönetici işlemleri: silme/geri getirme/düzenleme) o başlıklarla, verilmezse
+   (sınav sırasında cloudPushProgress/Done → sbSave) her zamanki gibi zayıf/yazma-anahtarıyla. */
+function sbUpdate(attemptId, patch, hdrs){
   if(!SB_ON || !attemptId) return Promise.resolve(false);
   return sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?attempt_id=eq."+encodeURIComponent(attemptId),{
-    method:"PATCH", headers:sbHeaders({ "Prefer":"return=minimal" }), body:JSON.stringify(patch)
+    method:"PATCH", headers: hdrs || sbHeaders({ "Prefer":"return=minimal" }), body:JSON.stringify(patch)
   }).then(function(r){ return r.ok; }).catch(function(){ return false; });
 }
 function cloudRowToRec(row){
@@ -589,7 +617,7 @@ function mergedRecords(){
   return arr;
 }
 function refreshCloud(then){
-  if(!SB_ON){ if(then) then(); return; }
+  if(!isAdminAuthed()){ if(then) then(); return; }
   sbFetchAll().then(function(rows){
     if(rows){ cloudCache = rows.map(cloudRowToRec); cloudLastSync = Date.now(); cloudError=false; cloudFails=0; }
     else { cloudError=true; cloudFails++; if(cloudCache===null) cloudCache=[]; }
@@ -603,7 +631,7 @@ function deleteRecords(list, then){
     if(r && r.cloudStatus){
       // optimistic: mark the cached copy deleted so it drops from the list at once
       var c=(cloudCache||[]).filter(function(x){return x.attemptId===r.attemptId;})[0]; if(c) c.cloudStatus="deleted";
-      sbUpdate(r.attemptId, { status:"deleted" }).then(function(){ refreshCloud(); });
+      sbUpdate(r.attemptId, { status:"deleted" }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(){ refreshCloud(); });
     }
     var i = loc.findIndex(function(x){ return x.attemptId===r.attemptId; });
     if(i>=0) loc.splice(i,1);
@@ -616,7 +644,7 @@ function restoreRecord(r, then){
     var back = (r.mods && r.mods.length && r.finishedAt && r.total!=null) ? "completed"
              : (r.passedCount!=null ? "in_progress" : "registered");
     var c=(cloudCache||[]).filter(function(x){return x.attemptId===r.attemptId;})[0]; if(c) c.cloudStatus=back;
-    sbUpdate(r.attemptId, { status: back }).then(function(){ refreshCloud(); });
+    sbUpdate(r.attemptId, { status: back }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(){ refreshCloud(); });
   }
   if(then) then();
 }
@@ -630,7 +658,7 @@ function patchRecord(r, patch, then){
     rec2.name=patch.name; rec2.rank=patch.rank; rec2.vessel=patch.vessel; rec2.sicil=patch.sicil;
     sbUpdate(r.attemptId, {
       name:patch.name, rank:patch.rank, vessel:patch.vessel, seamans_book_no:patch.sicil, record:rec2
-    }).then(function(){ refreshCloud(); });
+    }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(){ refreshCloud(); });
   }
   if(then) then();
 }
@@ -1724,12 +1752,14 @@ function applyChrome(){
 function setLang(l){ if(l===lang) return; lang=l; if(state) state.lang=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} save(); applyChrome(); render(); }
 document.getElementById("lgTr").onclick=function(){ setLang("tr"); };
 document.getElementById("lgEn").onclick=function(){ setLang("en"); };
-document.getElementById("logoBtn").onclick=function(){ if(!ADMIN_UI) return; renderAdmin(); window.scrollTo(0,0); };
+document.getElementById("logoBtn").onclick=function(){ renderAdmin(); window.scrollTo(0,0); };
 (function(){
+  /* Yönetici butonu artık genel (paylaşılan) sitede de görünür — kullanıcı adı+şifresi olan
+     herhangi bir yönetici, dosyaya ihtiyaç duymadan doğrudan buradan giriş yapabilir. Yeni
+     hesap açma/service_role ile ilk kurulum hâlâ sadece özel yönetici dosyasında (ADMIN_UI). */
   var ab=document.getElementById("adminBtn");
   if(!ab) return;
-  if(ADMIN_UI){ ab.onclick=function(){ renderAdmin(); window.scrollTo(0,0); }; }
-  else { ab.parentNode.removeChild(ab); }   /* paylaşılan sınav linkinde yönetici butonu hiç görünmez */
+  ab.onclick=function(){ renderAdmin(); window.scrollTo(0,0); };
 })();
 
 /* focus / visibility tracking */
@@ -2097,6 +2127,16 @@ function resolveDeckUrl(mi, cb){
 }
 function gotoModule(mi){
   state.current=mi;
+  /* Bir modül daha önce bitirilmiş olsa bile (geçse de kalsa da), pickerden tekrar açıldığında
+     sunumu/videoyu tekrar görebilsin diye "tek seferlik" kısıtı burada kaldırılır — deckDone
+     sıfırlanınca needDeck() o modül için sunumu bir kez daha gösterir. Bu SADECE picker'dan
+     bilinçli bir yeniden-girişte olur (aşağıdaki render() dispatcher'ı, sayfa yenilemesiyle
+     yarım kalmış bir modüle dönerken gotoModule'u değil state.phase'i doğrudan kullandığı için
+     etkilenmez — yani cevaplanmakta olan bir modül sayfa yenilemesiyle sunuma geri atmaz). */
+  if(state.results && state.results[mi]){
+    if(!state.deckDone) state.deckDone={};
+    state.deckDone[mi]=false;
+  }
   if(needDeck(mi)){ state.phase="deck"; save(); renderDeck(mi); }
   else { state.phase="module"; save(); renderModule(mi); }
   /* Aday bir modüle GİRER girmez (henüz bitirmese bile) yönetici panelinde "Devam" olarak
@@ -3386,26 +3426,31 @@ function renderAdmin(){
     return;
   }
 
-  /* Yönetici dosyası: bulut anahtarı henüz girilmemişse iste (bu cihazda saklanır, dosyaya yazılmaz) */
-  if(ADMIN_UI && !SB_KEY){
+  /* Giriş ekranı: hem yönetici dosyasında (bulut anahtarı henüz girilmemişse) hem de genel
+     (yayınlanan) sitede — kullanıcı adı+şifre girişi HER İKİSİNDE de çalışır; ham service_role
+     anahtarını yapıştırma seçeneği ve yeni kullanıcı oluşturma ise sadece özel yönetici
+     dosyasında (ADMIN_UI) gösterilir — böylece yeni admin hesabı açmak yine sadece asıl
+     sahipte kalır, ama var olan bir hesapla giriş yapmak için dosyaya ihtiyaç yoktur. */
+  if(!isAdminAuthed()){
     app.innerHTML='<div class="card verify-panel"><h2>'+t.adminTitle+'</h2>'+
-      '<p class="lead" style="font-size:.86rem">Kullanıcı adı ve şifrenizle giriş yapın. İlk kurulumda henüz kullanıcı yoksa, '+
-      'aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "👥 Kullanıcılar" bölümünden '+
-      'kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.</p>'+
+      '<p class="lead" style="font-size:.86rem">Kullanıcı adı ve şifrenizle giriş yapın.'+
+      (ADMIN_UI ? ' İlk kurulumda henüz kullanıcı yoksa, aşağıdan bir kerelik service_role anahtarını girip devam edin — panel açıldıktan sonra "🔐 Kullanıcılar" bölümünden kendinize ve başkalarına kullanıcı adı/şifre tanımlayabilirsiniz.' : '')+
+      '</p>'+
       '<label class="fld" for="aluUser">Kullanıcı adı</label><input type="text" id="aluUser" autocomplete="username" autocapitalize="off">'+
       '<label class="fld" for="aluPass">Şifre</label><input type="password" id="aluPass" autocomplete="current-password">'+
       '<div class="note warn" id="aluErr" style="display:none"></div>'+
       '<div class="btnrow"><button class="btn" id="aluGo">Giriş yap</button>'+
-      '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">service_role anahtarıyla gir</button></div>'+
-      '<div id="asbkBox" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">'+
+      (ADMIN_UI ? '<button class="btn ghost" id="asbkToggle" style="margin-left:auto">service_role anahtarıyla gir</button>' : '')+'</div>'+
+      (ADMIN_UI ? '<div id="asbkBox" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">'+
         '<label class="fld" for="asbk">service_role anahtarı (ilk kurulum)</label>'+
         '<input type="password" id="asbk" autocomplete="off" spellcheck="false" placeholder="eyJhbGciOi... veya sb_secret_...">'+
         '<div class="note warn" id="asbkErr" style="display:none"></div>'+
         '<div class="btnrow"><button class="btn" id="asbkGo">Kaydet ve aç</button></div>'+
-      '</div>'+
+      '</div>' : '')+
       '<div class="btnrow" style="margin-top:14px"><button class="btn ghost" id="asbkBack">'+t.backApp+'</button></div></div>';
     document.getElementById("asbkBack").onclick=adminBack;
-    document.getElementById("asbkToggle").onclick=function(){
+    var asbkToggle=document.getElementById("asbkToggle");
+    if(asbkToggle) asbkToggle.onclick=function(){
       var b=document.getElementById("asbkBox"); b.style.display=b.style.display==="none"?"block":"none";
     };
     document.getElementById("aluGo").onclick=function(){
@@ -3417,12 +3462,14 @@ function renderAdmin(){
         btn.textContent="Giriş yap"; btn.disabled=false;
         if(!res){ e.style.display="block"; e.textContent="Kullanıcı adı veya şifre hatalı."; return; }
         try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); }catch(err){}
-        setServiceKey(res.service_key); cloudCache=null; cloudFails=0;
+        if(ADMIN_UI) setServiceKey(res.service_key); else setAdminKey(res.service_key);
+        cloudCache=null; cloudFails=0;
         if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
         renderAdmin();
       });
     };
-    document.getElementById("asbkGo").onclick=function(){
+    var asbkGo=document.getElementById("asbkGo");
+    if(asbkGo) asbkGo.onclick=function(){
       var v=document.getElementById("asbk").value, e=document.getElementById("asbkErr");
       if((v||"").trim().length<20){ e.style.display="block"; e.textContent="Anahtar çok kısa görünüyor."; return; }
       setServiceKey(v); cloudCache=null; cloudFails=0;
@@ -3433,7 +3480,7 @@ function renderAdmin(){
     return;
   }
 
-  if(SB_ON && adminPoll===null){
+  if(isAdminAuthed() && adminPoll===null){
     var tick=function(){
       if(!adminUnlocked || !document.getElementById("aSearch") || cloudFails>=3){ if(adminPoll){clearInterval(adminPoll);adminPoll=null;} return; }
       refreshCloud(function(){ if(adminUnlocked && document.getElementById("aSearch")) renderAdmin(); });
@@ -3441,10 +3488,10 @@ function renderAdmin(){
     adminPoll=setInterval(tick, 20000);
     if(cloudFails<3) refreshCloud(function(){ if(adminUnlocked && document.getElementById("aSearch")) renderAdmin(); });
   }
-  var allRecs = (SB_ON ? mergedRecords() : loadRecords().slice()).sort(function(x,y){ return String(y.ts||"").localeCompare(String(x.ts||"")); });
+  var allRecs = (isAdminAuthed() ? mergedRecords() : loadRecords().slice()).sort(function(x,y){ return String(y.ts||"").localeCompare(String(x.ts||"")); });
   var delCount = allRecs.filter(function(r){ return r.cloudStatus==="deleted"; }).length;
   var recs = allRecs.filter(function(r){ return (adminFilter==="del") === (r.cloudStatus==="deleted"); });
-  var cloudBusy = SB_ON && cloudCache===null && !cloudError;
+  var cloudBusy = isAdminAuthed() && cloudCache===null && !cloudError;
   var q=adminSearch.trim().toLowerCase();
   var shown=recs.filter(function(r){
     if(q && [r.name,r.sicil,r.vessel,r.rank].join(" ").toLowerCase().indexOf(q)<0) return false;
@@ -3501,7 +3548,7 @@ function renderAdmin(){
   }).join("");
 
   var cloudLine;
-  if(!SB_ON) cloudLine='<div class="cloudline">'+t.cloudOff+'</div>';
+  if(!isAdminAuthed()) cloudLine='<div class="cloudline">'+t.cloudOff+'</div>';
   else if(cloudError) cloudLine='<div class="cloudline err">⚠ '+t.cloudErr+' <button class="btn sm ghost" id="aRefresh" style="margin-left:8px">'+t.cloudRefresh+'</button></div>';
   else cloudLine='<div class="cloudline"><span class="livedot"></span>'+t.cloudOn+' ('+((cloudCache||[]).length)+')'+
       (cloudLastSync?' · '+t.cloudSync(new Date(cloudLastSync).toLocaleTimeString()):' · '+t.cloudLoading)+
@@ -3546,7 +3593,7 @@ function renderAdmin(){
       '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
       '<button class="btn sm ghost" id="aPin">🔑 '+t.admChangePin+'</button>'+
-      (ADMIN_UI ? '<button class="btn sm ghost" id="aSbKey">☁ Bulut anahtarı</button>' : '')+
+      '<button class="btn sm ghost" id="aSbKey">'+(ADMIN_UI?'☁ Bulut anahtarı':'🔑 Çıkış yap')+'</button>'+
       '<button class="btn sm ghost" id="aClear" style="border-color:var(--bad);color:var(--bad)">🗑 '+t.admClear+'</button>'+
       '<button class="btn sm ghost" id="aBack2">'+t.backApp+'</button>'+
     '</div>'+
@@ -3583,13 +3630,13 @@ function renderAdmin(){
       '</div>'+
       '<div id="aKeysWrap" style="margin-top:10px"></div>'+
     '</div>'+
-    (ADMIN_UI ? '<div id="aUsersBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+    (ADMIN_UI ? '<div id="aUsersBox" style="display:'+(usersBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">Kullanıcı adı + şifreyle giriş yapabilecek yöneticiler. Hepsi aynı yetkiye sahiptir (bu cihazdaki service_role anahtarının bir kopyasıyla oluşturulur) — sadece kimin giriş yaptığını ayırt etmek içindir.</div>'+
       '<div id="aUsersList" style="margin-bottom:12px"></div>'+
       '<div class="grid2">'+
-        '<div><label class="fld" for="auName">Görünen ad</label><input type="text" id="auName" placeholder="Örn. Taner Akciğer"></div>'+
-        '<div><label class="fld" for="auUser">Kullanıcı adı</label><input type="text" id="auUser" autocapitalize="off"></div>'+
-        '<div><label class="fld" for="auPass">Şifre</label><input type="password" id="auPass"></div>'+
+        '<div><label class="fld" for="auName">Görünen ad</label><input type="text" id="auName" placeholder="Örn. Taner Akciğer" value="'+esc(usersDraft.name)+'"></div>'+
+        '<div><label class="fld" for="auUser">Kullanıcı adı</label><input type="text" id="auUser" autocapitalize="off" value="'+esc(usersDraft.user)+'"></div>'+
+        '<div><label class="fld" for="auPass">Şifre</label><input type="password" id="auPass" value="'+esc(usersDraft.pass)+'"></div>'+
       '</div>'+
       '<div id="aUsersMsg" style="font-size:.8rem;color:var(--bad);margin:6px 0"></div>'+
       '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="auAdd">+ Kullanıcı ekle</button></div>'+
@@ -3675,7 +3722,7 @@ function renderAdmin(){
   var aSbKeyBtn=document.getElementById("aSbKey");
   if(aSbKeyBtn) aSbKeyBtn.onclick=function(){
     if(confirm("Çıkış yapıp yeniden giriş yapmak (veya farklı kullanıcı ile girmek) ister misiniz?")){
-      clearServiceKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); }catch(e){}
+      logoutAdmin();
       if(adminPoll){clearInterval(adminPoll);adminPoll=null;} renderAdmin();
     }
   };
@@ -3834,15 +3881,18 @@ function renderAdmin(){
   var aUsersBtn=document.getElementById("aUsers");
   if(aUsersBtn) aUsersBtn.onclick=function(){
     var b=document.getElementById("aUsersBox");
-    var willOpen=b.style.display==="none";
-    b.style.display=willOpen?"block":"none";
-    if(willOpen) loadAdminUsersList();
+    usersBoxOpen = b.style.display==="none";
+    b.style.display=usersBoxOpen?"block":"none";
+    if(usersBoxOpen) loadAdminUsersList();
   };
+  /* Bulut otomatik yenilemesi paneli yeniden çizdiyse, kutu açık kalmışsa listeyi hemen tazele
+     (crewState ile aynı mantık — bkz. yukarıdaki not). */
+  if(usersBoxOpen) loadAdminUsersList();
   function loadAdminUsersList(){
     var listEl=document.getElementById("aUsersList");
     if(!listEl) return;
     listEl.innerHTML='<span class="spin"></span>';
-    sbFetch(SB_URL+"/rest/v1/admin_users?select=username,display_name,created_at&order=created_at.asc", { headers:sbHeaders() })
+    sbFetch(SB_URL+"/rest/v1/admin_users?select=username,display_name,created_at&order=created_at.asc", { headers:sbAdminHeaders() })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(rows){
         if(!rows){ listEl.innerHTML='<div class="note warn">Liste okunamadı — admin_users tablosu kurulmamış olabilir (bkz. supabase-5-admin-kullanicilari.sql).</div>'; return; }
@@ -3856,11 +3906,17 @@ function renderAdmin(){
           btn.onclick=function(){
             var un=btn.getAttribute("data-u");
             if(!confirm(un+" kullanıcısını silmek istediğinize emin misiniz?")) return;
-            sbFetch(SB_URL+"/rest/v1/admin_users?username=eq."+encodeURIComponent(un), { method:"DELETE", headers:sbHeaders({"Prefer":"return=minimal"}) })
+            sbFetch(SB_URL+"/rest/v1/admin_users?username=eq."+encodeURIComponent(un), { method:"DELETE", headers:sbAdminHeaders({"Prefer":"return=minimal"}) })
               .then(function(){ loadAdminUsersList(); });
           };
         });
       });
+  }
+  var auNameEl=document.getElementById("auName"), auUserEl=document.getElementById("auUser"), auPassEl=document.getElementById("auPass");
+  if(auNameEl){
+    auNameEl.oninput=function(){ usersDraft.name=auNameEl.value; };
+    auUserEl.oninput=function(){ usersDraft.user=auUserEl.value; };
+    auPassEl.oninput=function(){ usersDraft.pass=auPassEl.value; };
   }
   var auAdd=document.getElementById("auAdd");
   if(auAdd) auAdd.onclick=function(){
@@ -3874,11 +3930,12 @@ function renderAdmin(){
     var hash=h32(user+"|"+pass+"|inka-admin-user-v1");
     auAdd.textContent="…"; auAdd.disabled=true;
     sbFetch(SB_URL+"/rest/v1/admin_users", {
-      method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}),
-      body:JSON.stringify({username:user, password_hash:hash, display_name:name, service_key:SB_KEY})
+      method:"POST", headers:sbAdminHeaders({"Prefer":"return=minimal"}),
+      body:JSON.stringify({username:user, password_hash:hash, display_name:name, service_key:activeAdminKey()})
     }).then(function(r){
       auAdd.textContent="+ Kullanıcı ekle"; auAdd.disabled=false;
       if(!r.ok){ msg.textContent="Eklenemedi — bu kullanıcı adı zaten var olabilir."; return; }
+      usersDraft={name:"",user:"",pass:""};
       document.getElementById("auName").value=""; document.getElementById("auUser").value=""; document.getElementById("auPass").value="";
       loadAdminUsersList();
     }).catch(function(){ auAdd.textContent="+ Kullanıcı ekle"; auAdd.disabled=false; msg.textContent="Bağlantı hatası."; });
