@@ -448,6 +448,10 @@ var DATA = {
 var Q_PER = 20;
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
+/* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
+   (adminPoll / ilk refreshCloud) her tetiklendiğinde renderAdmin() paneli baştan çiziyor — bu
+   nesne olmasa yükleme sırasında/incelerken açık kutu ve ayrıştırılmış liste kaybolurdu. */
+var crewState = { open:false, people:null, vessel:"" };
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
 var SB_URL   = "https://hoauaumaooxgtmjxxelq.supabase.co";
@@ -635,6 +639,38 @@ var ROLES = ["Master","Chf Off","2nd Off","3rd Off","4th Off","Deck Cad","Chf En
  "Business Development Manager","Technical Manager","Training Superintendent","Training Superintendent Assistant",
  "Crewing Manager","Crew Assistant","Crewing","Sickwage","Observer","Quarantine","Deck Boy","Doctor","Wiper","Oiler","Stwrd","Catering Boy",
  "Fitter","Accounting Manager"];
+
+/* Crew List (IMO FAL Form 5 vb.) içindeki serbest metin rütbe adlarını uygulamanın ROLES
+   listesindeki karşılığına eşlemek için kullanılır (büyük/küçük harf ve boşluk normalize
+   edilerek karşılaştırılır). "Crew List → Linkler" özelliği için — bkz. parseCrewWorkbook(). */
+var RANK_ALIASES = {
+  "MASTER":"Master","CAPTAIN":"Master",
+  "CHIEF OFFICER":"Chf Off","CHIEF MATE":"Chf Off","1ST OFFICER":"Chf Off","1ST MATE":"Chf Off","FIRST OFFICER":"Chf Off","FIRST MATE":"Chf Off",
+  "2ND OFFICER":"2nd Off","SECOND OFFICER":"2nd Off","SECOND MATE":"2nd Off","2ND MATE":"2nd Off",
+  "3RD OFFICER":"3rd Off","THIRD OFFICER":"3rd Off","THIRD MATE":"3rd Off","3RD MATE":"3rd Off",
+  "4TH OFFICER":"4th Off","FOURTH OFFICER":"4th Off",
+  "DECK CADET":"Deck Cad","DECK CDT":"Deck Cad",
+  "CHIEF ENGINEER":"Chf Eng","1ST ENGINEER":"Chf Eng","FIRST ENGINEER":"Chf Eng",
+  "2ND ENGINEER":"2nd Eng","SECOND ENGINEER":"2nd Eng",
+  "3RD ENGINEER":"3rd Eng","THIRD ENGINEER":"3rd Eng",
+  "4TH ENGINEER":"4th Eng","FOURTH ENGINEER":"4th Eng",
+  "ETO":"ETO","ELECTRO-TECHNICAL OFFICER":"ETO","ELECTRO TECHNICAL OFFICER":"ETO","ELECTRICIAN":"ETO","ELECTRICAL OFFICER":"ETO",
+  "BOSUN":"Bosun","BOATSWAIN":"Bosun",
+  "ABLE SEAMAN":"AB","AB":"AB","A.B.":"AB","ABLE BODIED SEAMAN":"AB",
+  "ORDINARY SEAMAN":"OS","OS":"OS","O.S.":"OS",
+  "ENGINE CADET":"Eng Cad","ENGINE CDT":"Eng Cad",
+  "DECK BOY":"Deck Boy",
+  "WIPER":"Wiper","OILER":"Oiler","FITTER":"Fitter",
+  "COOK":"Cook","CHIEF COOK":"Cook",
+  "STEWARD":"Stwrd","STWRD":"Stwrd","MESSMAN":"Stwrd",
+  "CATERING BOY":"Catering Boy","GALLEY BOY":"Catering Boy"
+};
+function matchRank(raw){
+  var k=String(raw||"").trim().toUpperCase().replace(/\s+/g," ");
+  if(RANK_ALIASES[k]) return RANK_ALIASES[k];
+  for(var alias in RANK_ALIASES){ if(k.indexOf(alias)>=0) return RANK_ALIASES[alias]; }
+  return "";
+}
 
 /* Course content shown on each module certificate (English, per the certificate standard) */
 var SYLLABUS = {
@@ -1306,6 +1342,13 @@ var STR = {
   admImportGo:"Aktar",
   admImportMsg:function(a,bad){ return a+" kayıt eklendi"+(bad?" · "+bad+" kod okunamadı":""); },
   admThDate:"Tarih", admThCand:"Aday", admThRankVessel:"Rütbe / Gemi", admThModules:"Modül", admThPassed:"Geçilen Modüller",
+  admCrewBtn:"Crew List → Linkler",
+  crewLead:"Excel (.xlsx) mürettebat listesi yükleyin — isim/rütbe/seaman's book no sütunları otomatik bulunur ve her kişi için kayıt linki hazırlanır. Kişi linki KENDİSİ açar, sunumu izleyip sınavı KENDİSİ tamamlar; hiçbir kayıt otomatik \"geçti\" yapılmaz.",
+  crewFileLbl:"Excel dosyası (.xlsx)", crewVesselLbl:"Gemi adı",
+  crewLoading:"Excel okunuyor…", crewLoadLibErr:"Excel okuma kütüphanesi yüklenemedi (internet bağlantısı gerekli).",
+  crewNoRows:"Satırlar okunamadı — sütun başlıklarını kontrol edin (Family name / Rank / Seaman Book No).",
+  crewFound:function(n){ return n+" kişi bulundu — aşağıdan kontrol edip linkleri kopyalayın."; },
+  crewCopyAll:"Tümünü kopyala (Ad + Rütbe + Link)", crewCopyOne:"Kopyala", crewUnmatched:"— eşleşmedi, seçin —",
   admEmpty:"Bu cihazda henüz sınav kaydı yok. Adaylar sınavı bitirdikçe kayıtlar burada birikir; başka cihazlardaki sonuçları 'Sonuç kodu içe aktar' ile ekleyebilirsiniz.",
   admClearConfirm:"Bu cihazdaki tüm sınav kayıtları silinsin mi?",
   admDetailBack:"← Listeye dön",
@@ -1509,6 +1552,13 @@ var STR = {
   admImportGo:"Import",
   admImportMsg:function(a,bad){ return a+" record(s) added"+(bad?" · "+bad+" code(s) unreadable":""); },
   admThDate:"Date", admThCand:"Candidate", admThRankVessel:"Rank / Vessel", admThModules:"Modules", admThPassed:"Passed Modules",
+  admCrewBtn:"Crew List → Links",
+  crewLead:"Upload an Excel (.xlsx) crew list — name/rank/seaman's book columns are found automatically and a registration link is built per person. Each person opens their OWN link, watches the presentation and takes the exam THEMSELVES; nothing is auto-marked as passed.",
+  crewFileLbl:"Excel file (.xlsx)", crewVesselLbl:"Vessel name",
+  crewLoading:"Reading Excel…", crewLoadLibErr:"Could not load the Excel-reading library (internet connection required).",
+  crewNoRows:"Could not read any rows — check the column headers (Family name / Rank / Seaman Book No).",
+  crewFound:function(n){ return n+" people found — review below, then copy each link."; },
+  crewCopyAll:"Copy all (Name + Rank + Link)", crewCopyOne:"Copy", crewUnmatched:"— no match, pick —",
   admEmpty:"No exam records on this device yet. Records accumulate here as candidates finish; add results from other devices via 'Import result code'.",
   admClearConfirm:"Delete all exam records on this device?",
   admDetailBack:"← Back to list",
@@ -2992,6 +3042,73 @@ function recStatus(r){
   if(!attempted.length) return (r.cloudStatus==="registered") ? "reg" : "prog";
   return attempted.some(function(m){ return !m.passed; }) ? "fail" : "pass";
 }
+/* ---------------- CREW LIST → KİŞİ BAZLI LİNKLER ----------------
+   Yönetici panelinde bir Excel (.xlsx) mürettebat listesi yüklenip her satır için otomatik
+   ?name=&rank=&vessel=&sicil= linki üretilir. Kişi linki KENDİSİ açar, sunum+sınavı KENDİSİ
+   tamamlar — hiçbir kayıt otomatik "geçti" işaretlenmez, sadece veri girişini hızlandırır. */
+var XLSX_CDN = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+function loadXLSXLib(cb){
+  if(window.XLSX){ cb(true); return; }
+  var s=document.createElement("script");
+  s.src=XLSX_CDN; s.onload=function(){ cb(!!window.XLSX); }; s.onerror=function(){ cb(false); };
+  document.head.appendChild(s);
+}
+function cellTxt(v){ return (v==null) ? "" : String(v).trim(); }
+/* Excel'i (SheetJS workbook) satır dizisine çevirip gemi adını ve kişi listesini çıkarır.
+   Sütunlar sabit hücre adresine göre değil, başlık metnine göre bulunur (ör. "Family name",
+   "Rank", "Seaman... Book" — "expiry" içerenler hariç, "Sign on"+"Date") — böylece IMO FAL
+   Form 5'in farklı doldurulmuş kopyalarında satır/sütun kayması olsa da çalışır. */
+function parseCrewWorkbook(wb){
+  var ws = wb.Sheets[wb.SheetNames[0]];
+  var grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:null, raw:false});
+  var vessel="";
+  outerV: for(var r=0;r<Math.min(grid.length,40);r++){
+    var row=grid[r]||[];
+    for(var c=0;c<row.length;c++){
+      if(cellTxt(row[c]).toLowerCase().indexOf("name of ship")>=0){
+        var below=grid[r+1]&&grid[r+1][c];
+        if(cellTxt(below)){ vessel=cellTxt(below); break outerV; }
+        for(var c2=c+1;c2<row.length && c2<c+8;c2++){ if(cellTxt(row[c2])){ vessel=cellTxt(row[c2]); break outerV; } }
+      }
+    }
+  }
+  var headerRow=-1, nameCol=-1, rankCol=-1, sicilCol=-1, signonCol=-1;
+  for(var r2=0;r2<Math.min(grid.length,60);r2++){
+    var row2=grid[r2]||[]; var nc=-1, rc=-1, sc=-1, dc=-1;
+    for(var c3=0;c3<row2.length;c3++){
+      var tx=cellTxt(row2[c3]).toLowerCase();
+      if(!tx) continue;
+      if(nc<0 && tx.indexOf("family name")>=0) nc=c3;
+      if(rc<0 && tx.indexOf("rank")>=0) rc=c3;
+      if(sc<0 && tx.indexOf("seaman")>=0 && tx.indexOf("book")>=0 && tx.indexOf("expir")<0) sc=c3;
+      if(dc<0 && tx.indexOf("sign on")>=0 && tx.indexOf("date")>=0) dc=c3;
+    }
+    if(nc>=0 && rc>=0){ headerRow=r2; nameCol=nc; rankCol=rc; sicilCol=sc; signonCol=dc; break; }
+  }
+  if(headerRow<0) return {error:"header", vessel:vessel, people:[]};
+  var people=[], emptyStreak=0;
+  for(var r3=headerRow+1;r3<grid.length && r3<headerRow+300;r3++){
+    var row3=grid[r3]||[];
+    var nameV=cellTxt(row3[nameCol]), rankV=cellTxt(row3[rankCol]);
+    if(!nameV || !rankV || /^\d+\.\s/.test(nameV)){
+      emptyStreak++;
+      if(people.length && emptyStreak>4) break;
+      continue;
+    }
+    emptyStreak=0;
+    people.push({
+      name:nameV, rankRaw:rankV, rank:matchRank(rankV),
+      sicil: sicilCol>=0 ? cellTxt(row3[sicilCol]) : "",
+      signon: signonCol>=0 ? cellTxt(row3[signonCol]) : ""
+    });
+  }
+  return {error:null, vessel:vessel, people:people};
+}
+function crewLinkFor(base, name, rank, vessel, sicil){
+  return base+(base.indexOf("?")>=0?"&":"?")+"name="+encodeURIComponent(name)+"&rank="+encodeURIComponent(rank||"")+
+    "&vessel="+encodeURIComponent(vessel||"")+"&sicil="+encodeURIComponent(sicil||"")+"&lang="+lang;
+}
+
 function renderAdmin(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   document.getElementById("footNote").style.display="none";
@@ -3149,6 +3266,7 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aCsvCopy">📋 '+t.admCsvCopy+'</button>'+
       '<button class="btn sm ghost" id="aCsvDl">⬇️ '+t.admCsvDl+'</button>'+
       '<button class="btn sm ghost" id="aImport">📥 '+t.admImport+'</button>'+
+      '<button class="btn sm ghost" id="aCrew">👥 '+t.admCrewBtn+'</button>'+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
       '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
@@ -3171,6 +3289,15 @@ function renderAdmin(){
       '<textarea class="logbox" id="aImportTa" placeholder="GSMR1.…" style="height:90px"></textarea>'+
       '<div class="btnrow" style="margin-top:6px"><button class="btn sm" id="aImportGo">'+t.admImportGo+'</button>'+
       '<span id="aImportMsg" style="font-size:.8rem;color:var(--muted);align-self:center"></span></div>'+
+    '</div>'+
+    '<div id="aCrewBox" style="display:'+(crewState.open?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+t.crewLead+'</div>'+
+      '<div class="grid2" style="margin-bottom:8px">'+
+        '<div><label class="fld" for="crewFile">'+t.crewFileLbl+'</label><input type="file" id="crewFile" accept=".xlsx"></div>'+
+        '<div><label class="fld" for="crewVessel">'+t.crewVesselLbl+'</label><input type="text" id="crewVessel" placeholder="M/V …"></div>'+
+      '</div>'+
+      '<div id="crewMsg" style="font-size:.82rem;color:var(--muted)"></div>'+
+      '<div id="crewResultsWrap"></div>'+
     '</div>'+
     '<textarea class="logbox" id="aCsvBox" readonly style="display:none;height:120px;margin-top:10px"></textarea>'+
     (cloudBusy && !recs.length
@@ -3276,6 +3403,86 @@ function renderAdmin(){
     document.getElementById("aImportMsg").textContent=t.admImportMsg(added, toks.length-parsed.length);
     setTimeout(renderAdmin, 900);
   };
+  document.getElementById("aCrew").onclick=function(){
+    crewState.open=!crewState.open;
+    document.getElementById("aCrewBox").style.display=crewState.open?"block":"none";
+  };
+  (function(){
+    var fileEl=document.getElementById("crewFile"), vesselEl=document.getElementById("crewVessel"),
+        msgEl=document.getElementById("crewMsg"), wrapEl=document.getElementById("crewResultsWrap");
+    if(!fileEl) return;
+    var base=(CFG.shareUrl||"").trim() || (location.origin+location.pathname);
+    vesselEl.value=crewState.vessel||"";
+    function renderResults(){
+      var people=crewState.people;
+      if(!people || !people.length){ wrapEl.innerHTML=""; return; }
+      var vessel=vesselEl.value.trim();
+      var rowsHtml=people.map(function(p,i){
+        var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil);
+        var rankOpts='<option value="">'+esc(t.crewUnmatched)+'</option>'+ROLES.map(function(r){
+          return '<option value="'+esc(r)+'"'+(r===p.rank?" selected":"")+'>'+esc(r)+'</option>';
+        }).join("");
+        return '<tr>'+
+          '<td>'+esc(p.name)+'</td>'+
+          '<td><select class="crewRankSel" data-i="'+i+'" style="font-size:.78rem">'+rankOpts+'</select>'+
+            (p.rank?"":'<div style="font-size:.7rem;color:var(--bad)">'+esc(p.rankRaw)+'</div>')+'</td>'+
+          '<td style="font-family:var(--font-mono);font-size:.76rem">'+esc(p.sicil||"—")+'</td>'+
+          '<td style="max-width:280px"><input type="text" class="crewLinkInp" readonly value="'+esc(link)+'" '+
+            'style="width:100%;font-family:var(--font-mono);font-size:.7rem;border:1px solid var(--line);border-radius:6px;padding:4px 6px" onclick="this.select()"></td>'+
+          '<td><button class="btn sm ghost crewCopyBtn" data-i="'+i+'">'+t.crewCopyOne+'</button></td>'+
+        '</tr>';
+      }).join("");
+      wrapEl.innerHTML=
+        '<div style="font-size:.82rem;color:var(--ok);margin:8px 0">'+t.crewFound(people.length)+'</div>'+
+        '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="crewCopyAll">📋 '+t.crewCopyAll+'</button></div>'+
+        '<div style="overflow-x:auto;margin-top:8px"><table class="rec adm-table"><thead><tr>'+
+          '<th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.recFields.sicil+'</th><th>Link</th><th></th>'+
+        '</tr></thead><tbody>'+rowsHtml+'</tbody></table></div>';
+      wrapEl.querySelectorAll(".crewRankSel").forEach(function(sel){
+        sel.onchange=function(){ people[+sel.getAttribute("data-i")].rank=sel.value; renderResults(); };
+      });
+      wrapEl.querySelectorAll(".crewCopyBtn").forEach(function(btn){
+        btn.onclick=function(){
+          var p=people[+btn.getAttribute("data-i")];
+          copyText(crewLinkFor(base, p.name, p.rank, vessel, p.sicil), btn);
+        };
+      });
+      var copyAllBtn=document.getElementById("crewCopyAll");
+      if(copyAllBtn) copyAllBtn.onclick=function(){
+        var lines=people.map(function(p){ return p.name+"\t"+p.rank+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil); });
+        copyText(lines.join("\n"), copyAllBtn);
+      };
+    }
+    vesselEl.oninput=function(){ crewState.vessel=vesselEl.value; renderResults(); };
+    fileEl.onchange=function(){
+      var f=fileEl.files && fileEl.files[0];
+      if(!f) return;
+      crewState.people=null; wrapEl.innerHTML=""; msgEl.textContent=t.crewLoading;
+      loadXLSXLib(function(ok){
+        if(!ok){ msgEl.textContent=t.crewLoadLibErr; return; }
+        var reader=new FileReader();
+        reader.onload=function(e){
+          try{
+            var data=new Uint8Array(e.target.result);
+            var wb=XLSX.read(data, {type:"array"});
+            var res=parseCrewWorkbook(wb);
+            if(res.error || !res.people.length){ msgEl.textContent=t.crewNoRows; return; }
+            if(res.vessel && !vesselEl.value){
+              var vNorm=res.vessel, canon=CFG.vessels.filter(function(v){
+                return v.replace(/^M\/?V\s*/i,"").trim().toUpperCase()===vNorm.trim().toUpperCase();
+              })[0];
+              vNorm=canon||vNorm;
+              vesselEl.value=vNorm; crewState.vessel=vNorm;
+            }
+            crewState.people=res.people; msgEl.textContent=""; renderResults();
+          }catch(err){ msgEl.textContent=t.crewNoRows; }
+        };
+        reader.readAsArrayBuffer(f);
+      });
+    };
+    /* Bulut otomatik yenilemesi paneli yeniden çizdiyse, önceden ayrıştırılmış listeyi geri göster */
+    renderResults();
+  })();
   app.querySelectorAll(".adm-table tbody tr").forEach(function(tr){
     var open=function(){ renderAdminDetail(recs[+tr.getAttribute("data-i")]); };
     tr.onclick=function(e){ if(e.target && e.target.closest && e.target.closest(".cbcell")) return; open(); };
