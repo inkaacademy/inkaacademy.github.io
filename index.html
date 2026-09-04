@@ -3286,7 +3286,20 @@ function adminBack(){
   var mw=document.getElementById("mainWrap"); if(mw) mw.classList.remove("admin-wide");
   document.getElementById("footNote").style.display="";
   recEl.style.display="none";
-  if(state) render(); else renderIntro(load()&&load().phase?load():null);
+  if(state) render();
+  else {
+    var ld=load();
+    if(ld && ld.phase){ renderIntro(ld); }
+    else {
+      /* Admin panelden "Uygulamaya dön" ile çıkan bir yönetici, kendi hesabıyla admin
+         yetkisini KAYBETMEDEN normal kayıt ekranına düşer — video/sunum/soru tarafını
+         kendisi de görebilsin diye. Adı boşuna yeniden yazmasın diye kendi görünen adını
+         (admin_users.display_name) otomatik dolduruyoruz; rütbe/gemi seçimi ona kalıyor
+         (farklı rolleri test edebilsin diye). */
+      var an=null; try{ an=localStorage.getItem(LS_ADMIN_NAME); }catch(e){}
+      renderIntro(null, an ? {name:an} : null);
+    }
+  }
   window.scrollTo(0,0);
 }
 function moduleStats(records){
