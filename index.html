@@ -25,6 +25,9 @@
   html,body{margin:0;padding:0}
   body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:920px;margin:0 auto;padding:24px 16px 90px}
+  /* Yönetici alanı: tablo rahat sığsın diye sayfa genişliği neredeyse tam ekran (yaklaşık A4 yatay ve üstü) */
+  .wrap.admin-wide{max-width:1400px;padding:24px 28px 90px}
+  .wrap.admin-wide .card{padding:28px 32px}
   #deckFrame:fullscreen, #deckFrame:-webkit-full-screen{height:100vh!important;background:#fff}
   a{color:var(--navy2)}
   :focus-visible{outline:3px solid var(--gold-l);outline-offset:2px;border-radius:4px}
@@ -337,7 +340,7 @@
   table.adm-table tbody tr:hover{background:#eef3fb}
   table.adm-table td{white-space:nowrap}
   table.adm-table td.mods-td{white-space:normal;vertical-align:top;padding-top:10px;padding-bottom:10px}
-  .modbadges{display:flex;flex-wrap:wrap;gap:5px;max-width:460px;min-width:220px}
+  .modbadges{display:flex;flex-wrap:wrap;gap:5px;max-width:600px;min-width:220px}
   .modbadge{display:inline-block;padding:3px 9px;border-radius:7px;background:var(--ok-bg);color:var(--ok);
     font-family:var(--font-mono);font-size:.76rem;font-weight:700;cursor:help;line-height:1.4;
     box-shadow:0 1px 2px rgba(28,122,60,.12)}
@@ -2927,6 +2930,7 @@ function pinHashOf(p){ return h32(String(p)+"|gsm-admin-v3"); }
 /* ---------------- ADMIN PANEL ---------------- */
 function adminBack(){
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
+  var mw=document.getElementById("mainWrap"); if(mw) mw.classList.remove("admin-wide");
   document.getElementById("footNote").style.display="";
   recEl.style.display="none";
   if(state) render(); else renderIntro(load()&&load().phase?load():null);
@@ -2976,6 +2980,7 @@ function recStatus(r){
 function renderAdmin(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   document.getElementById("footNote").style.display="none";
+  var mw=document.getElementById("mainWrap"); if(mw) mw.classList.add("admin-wide");
   var t=T(), a=loadAdmin();
 
   if(!adminUnlocked){
@@ -3391,6 +3396,7 @@ function renderRecordFromRec(rec){
 function render(){
   stopTimer();
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
+  var mw=document.getElementById("mainWrap"); if(mw) mw.classList.remove("admin-wide");
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
   if(!state){ renderIntro(load()); return; }
   if(state.phase==="pick") renderPick();
