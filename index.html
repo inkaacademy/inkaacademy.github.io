@@ -2068,7 +2068,9 @@ function blobDownload(fn, doc){
 function shuffleArr(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i];a[i]=a[j];a[j]=t; } return a; }
 
 function newState(f){
-  var codes = modulesForRole(f.rank);
+  /* allModules: yönetici/şirket çalışanı kendi oturumuyla giriyorsa görevine bakılmaksızın TÜM
+     modüller açılır (görev sadece ad/sertifika içindir); göreve göre kısıtlama gemi personeli için. */
+  var codes = f.allModules ? CFG.modules.slice() : modulesForRole(f.rank);
   var bc=byCode(lang);
   var order={},optOrder={},answers={},focus={};
   codes.forEach(function(c,mi){
@@ -2194,8 +2196,10 @@ function renderIntro(resumable, prefill){
 
   var pf=document.getElementById("fName");
   var rankSel=document.getElementById("fRank"), roleHint=document.getElementById("fRoleHint");
+  var adminAllModules = isAdminAuthed() && !(prefill && prefill.aid);
   function updRoleHint(){
     var r=rankSel.value;
+    if(adminAllModules){ roleHint.textContent = T().roleAllModules(CFG.modules.length); return; }
     if(!r){ roleHint.textContent=""; return; }
     var mods=modulesForRole(r), custom=CFG.roleModules && CFG.roleModules[r] && CFG.roleModules[r].length;
     roleHint.textContent = custom ? T().roleAssigned(r, mods.length) : T().roleAllModules(mods.length);
@@ -2233,7 +2237,8 @@ function renderIntro(resumable, prefill){
       vessel:vesselValue(),
       sicil:document.getElementById("fSicil").value.trim(),
       shuffle:document.getElementById("fShuffle").checked,
-      attemptId: prefill && prefill.aid
+      attemptId: prefill && prefill.aid,
+      allModules: isAdminAuthed() && !(prefill && prefill.aid)
     });
     save(); cloudPushStart(); render(); window.scrollTo(0,0);
   };
