@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v53 · 2026-09-07 22:52";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v53 · 2026-09-07 23:35";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -2303,7 +2303,15 @@ function applyChrome(){
   if(cbt) cbt.textContent = lang==="en" ? "Presentations / Exams" : "Sunumlar / Sınavlar";
   if(cb) cb.title = lang==="en" ? "Presentations / Exams — sign in with your username and password" : "Sunumlar / Sınavlar — kullanıcı adı ve şifrenizle giriş";
 }
-function setLang(l){ if(l===lang) return; lang=l; if(state) state.lang=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} save(); applyChrome(); render(); }
+/* render() adayın sınav ekranı için yazılmış genel yönlendirici — "state yoksa giriş ekranını
+   göster" der, ama yönetici panelinde olunduğunu hiç bilmez. Daha önce TR/EN'e basmak, admin
+   panelini görüntüleyen birini (candidate state'i olmadığı için) sessizce giriş/username
+   ekranına düşürüyordu. Artık önce "şu an admin paneli mi açık" diye bakılıyor; öyleyse panel
+   aynı yerde yeni dilde yeniden çizilir, hiçbir ekran değişikliği/atılma olmaz. */
+function setLang(l){
+  if(l===lang) return; lang=l; if(state) state.lang=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} save(); applyChrome();
+  if(adminUnlocked && isAdminAuthed()) renderAdmin(); else render();
+}
 document.getElementById("lgTr").onclick=function(){ setLang("tr"); };
 document.getElementById("lgEn").onclick=function(){ setLang("en"); };
 document.getElementById("logoBtn").onclick=function(){ renderAdmin(); window.scrollTo(0,0); };
