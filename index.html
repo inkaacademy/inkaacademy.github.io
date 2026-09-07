@@ -59,7 +59,10 @@
   .langtoggle button{background:transparent;color:#fff;border:0;padding:7px 12px;font-weight:600;font-size:.8rem;cursor:pointer;letter-spacing:.5px;font-family:var(--font-sans)}
   .langtoggle button.active{background:var(--gold);color:var(--navy)}
   .iconbtn{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 10px;font-size:.95rem;cursor:pointer;line-height:1}
-  .sync-badge{display:none;align-items:center;gap:5px;font-size:.72rem;font-weight:700;padding:5px 10px;border-radius:99px;white-space:nowrap;border:1px solid rgba(255,255,255,.4)}
+  .sync-badge{display:none;align-items:center;gap:5px;font-size:.72rem;font-weight:700;padding:5px 10px;border-radius:99px;white-space:nowrap;border:1px solid rgba(255,255,255,.4);cursor:pointer}
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 14px;border-radius:10px;font-size:.85rem;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.28);max-width:92vw;line-height:1.35}
+  .toast.ok{background:#1c7a3c}.toast.warn{background:#a15c00}.toast.bad{background:#a92a25}
+  .toast button{margin-left:10px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:7px;padding:4px 9px;cursor:pointer;font-size:.8rem}
   .menuwrap{position:relative}
   /* position:fixed (JS ile konumlandırılır) — header.topbar'ın kendi arkaplan efekti için
      kullandığı overflow:hidden, absolute konumlu bir açılır kutuyu görünmez şekilde keserdi. */
@@ -518,6 +521,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
+var BUILD_STAMP = "v52 · 2026-09-07 20:27";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -573,6 +577,7 @@ function adminLoginRPC(username, password, cb){
   sbFetch(SB_URL+"/rest/v1/rpc/admin_login", {
     method:"POST", headers:sbAnonHeaders(), body:JSON.stringify({p_username:String(username).trim().toLowerCase(), p_password_hash:hash})
   }).then(function(r){ return r.ok ? r.json() : null; }).then(function(rows){
+    if(rows && rows.length) setAdminAuthHash(hash);   /* C2: ayar yazma RPC'si için bu sekmede sakla */
     cb(rows && rows.length ? rows[0] : null);
   }).catch(function(){ cb(null); });
 }
@@ -697,14 +702,14 @@ function activeAdminKey(){ return ADMIN_UI ? SB_KEY : ADMIN_KEY; }
 function isAdminAuthed(){ return !!activeAdminKey(); }
 var LS_ADMIN_RANK = "gsm_admin_rank_v1";
 var LS_ADMIN_USER = "gsm_admin_user_v1";
-function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); localStorage.removeItem(LS_ADMIN_RANK); localStorage.removeItem(LS_ADMIN_USER); }catch(e){} }
+function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); setAdminAuthHash(""); try{ localStorage.removeItem(LS_ADMIN_NAME); localStorage.removeItem(LS_ADMIN_RANK); localStorage.removeItem(LS_ADMIN_USER); }catch(e){} }
 function sbAdminHeaders(extra){
   var k=activeAdminKey();
   var h={ "apikey":k, "Authorization":"Bearer "+k, "Content-Type":"application/json" };
   if(extra) for(var x in extra) h[x]=extra[x];
   return h;
 }
-var cloudCache = null, cloudLastSync = 0, cloudError = false, cloudFails = 0, adminPoll = null;
+var cloudCache = null, cloudLastSync = 0, cloudError = false, cloudFails = 0, cloudLastFailAt = 0, adminPoll = null;
 function sbHeaders(extra){
   var h={ "apikey":SB_KEY, "Authorization":"Bearer "+SB_KEY, "Content-Type":"application/json" };
   if(extra) for(var k in extra) h[k]=extra[k];
@@ -776,7 +781,7 @@ function sbUpdate(attemptId, patch, hdrs){
    bozma riski taşır. */
 function pullCloudSettings(){
   if(!SB_ON) return;
-  sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules&id=eq.1",{ headers:sbHeaders() })
+  sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules,exam_cfg&id=eq.1",{ headers:sbHeaders() })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(rows){
       if(!rows || !rows.length) return;
@@ -791,8 +796,12 @@ function pullCloudSettings(){
         var canon=function(o){ return JSON.stringify(Object.keys(o||{}).sort().map(function(k){ return [k,(o[k]||[]).slice().sort()]; })); };
         if(canon(rm)!==canon(CFG.roleModules)){ CFG.roleModules = rm; changed=true; }
       }
+      /* C1: sınav ayarları — supabase-17 öncesi sütun yoksa row.exam_cfg undefined gelir, atlanır */
+      var cfgChanged=false;
+      if(row.exam_cfg && typeof row.exam_cfg==="object" && Object.keys(row.exam_cfg).length){ cfgChanged=applyExamCfg(row.exam_cfg); if(cfgChanged) changed=true; }
       if(changed){
         saveCfg();
+        if(cfgChanged){ try{ applyChrome(); }catch(e){} }   /* şirket adı / altbilgi sayıları — güvenli, ekranı yeniden çizmez */
         /* Ekranı SADECE gerçekten etkileniyorsa yeniden çiz: watchRequired yalnız sunum (deck) ekranını
            etkiler; roleModules başlamış bir sınavı etkilemez. Aksi halde bulut cevabı geç gelince
            soru ekranı adayın elinin altında yeniden çiziliyordu. */
@@ -800,21 +809,86 @@ function pullCloudSettings(){
       }
     }).catch(function(){});
 }
-/* Her ikisi de artık gerçek başarı/başarısızlık bilgisini bir Promise<boolean> olarak döndürür —
-   önceden tamamen "fire and forget" idi, yönetici panelde tıklandığında buluta gerçekten
-   yazılıp yazılmadığını hiçbir şey göstermiyordu (sessiz başarısızlık, teşhis etmeyi zorlaştırdı). */
-function pushCloudWatchRequired(v){
-  if(!SB_ON) return Promise.resolve(false);
-  sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,watch_required:!!v}) }).catch(function(){});
-  return sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({watch_required:!!v}) })
-    .then(function(r){ return !!(r && r.ok); }).catch(function(){ return false; });
+/* ---- Küçük bildirim (toast) ---- kind: ok | warn | bad | (boş). sticky=true ise kapatma düğmesi olur. */
+function toast(msg, kind, sticky){
+  try{
+    var old=document.getElementById("appToast"); if(old) old.remove();
+    var d=document.createElement("div"); d.id="appToast"; d.className="toast"+(kind?(" "+kind):"");
+    d.innerHTML=msg+(sticky?'<button id="appToastX">✕</button>':'');
+    document.body.appendChild(d);
+    if(sticky){ var x=document.getElementById("appToastX"); if(x) x.onclick=function(){ d.remove(); }; }
+    else setTimeout(function(){ try{ d.remove(); }catch(e){} }, 4500);
+  }catch(e){}
 }
-function pushCloudRoleModules(rm){
-  if(!SB_ON) return Promise.resolve(false);
-  var body=JSON.stringify({role_modules:rm||{}});
-  sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,role_modules:rm||{}}) }).catch(function(){});
-  return sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:body })
-    .then(function(r){ return !!(r && r.ok); }).catch(function(){ return false; });
+/* ---- Ayar yazma: SADECE yönetici kimliğiyle ----
+   Eskiden app_settings'e anon anahtarla doğrudan PATCH atılıyordu — sayfa kaynağındaki genel
+   anahtarı alan herkes video zorunluluğunu/atamaları değiştirebilirdi. Artık (supabase-17):
+   anon UPDATE/INSERT politikaları yok; yazma, admin kimlik bilgilerini veritabanında doğrulayan
+   security-definer RPC (admin_set_settings) üzerinden ya da (yönetici dosyasında) service_role
+   anahtarıyla. Şifre hash'i sadece bu sekmenin sessionStorage'ında, giriş sırasında hesaplanır. */
+var SS_ADMIN_HASH = "gsm_admin_hash_v1";
+var adminAuthHash = ""; try{ adminAuthHash = sessionStorage.getItem(SS_ADMIN_HASH) || ""; }catch(e){}
+function setAdminAuthHash(h){ adminAuthHash=h||""; try{ if(h) sessionStorage.setItem(SS_ADMIN_HASH,h); else sessionStorage.removeItem(SS_ADMIN_HASH); }catch(e){} }
+function pushCloudSettingsPatch(patch){
+  if(!SB_ON || !patch) return Promise.resolve(false);
+  var un=""; try{ un=localStorage.getItem(LS_ADMIN_USER)||""; }catch(e){}
+  if(adminAuthHash && un){
+    return sbFetch(SB_URL+"/rest/v1/rpc/admin_set_settings",{ method:"POST", headers:sbAnonHeaders(),
+      body:JSON.stringify({p_username:un, p_password_hash:adminAuthHash, p_patch:patch}) })
+      .then(function(r){ return r.ok ? r.json() : false; }).then(function(v){ return v===true; }).catch(function(){ return false; });
+  }
+  if(isAdminAuthed()){   /* yönetici dosyası / service_role: RLS'ten muaf, doğrudan PATCH */
+    return sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbAdminHeaders({"Prefer":"return=minimal, count=exact"}), body:JSON.stringify(patch) })
+      .then(function(r){ if(!r.ok) return false; var cr=""; try{ cr=r.headers.get("Content-Range")||""; }catch(e){} return !/\/0\s*$/.test(cr); })
+      .catch(function(){ return false; });
+  }
+  return Promise.resolve(false);
+}
+function pushCloudWatchRequired(v){ return pushCloudSettingsPatch({watch_required:!!v}); }
+function pushCloudRoleModules(rm){ return pushCloudSettingsPatch({role_modules:rm||{}}); }
+/* C1 — adayı doğrudan etkileyen sınav ayarları: bunlar da her cihaza ulaşmalı (geçme notu, süre,
+   serbest sıra, sunum bekleme/gösterim, etkin modüller, sertifika geçerliliği ve metinleri). */
+var EXAM_CFG_KEYS=["passMark","timerOn","timerMin","freeOrder","deckMinSec","decksOn","modules","validYears","company","docRef","signTitle","invigilator"];
+function examCfgSubset(){ var o={}; EXAM_CFG_KEYS.forEach(function(k){ if(CFG[k]!==undefined) o[k]=CFG[k]; }); return o; }
+function pushCloudExamCfg(){ return pushCloudSettingsPatch({exam_cfg:examCfgSubset()}); }
+/* Buluttan gelen exam_cfg'yi doğrulayarak uygular; bir şey değiştiyse true döner. */
+function applyExamCfg(ec){
+  if(!ec || typeof ec!=="object") return false;
+  var changed=false, canonV=function(v){ return JSON.stringify(v); };
+  EXAM_CFG_KEYS.forEach(function(k){
+    if(ec[k]===undefined) return;
+    var v=ec[k];
+    if(k==="modules"){ if(!Array.isArray(v)) return; v=v.filter(function(x){return ALL_CODES.indexOf(x)>=0;}); if(!v.length) return; }
+    if(k==="passMark") v=Math.max(1,Math.min(20,+v||14));
+    if(k==="timerMin") v=Math.max(3,Math.min(120,+v||20));
+    if(k==="validYears") v=Math.max(1,Math.min(10,+v||2));
+    if(k==="deckMinSec") v=Math.max(0,Math.min(600,+v||0));
+    if(k==="timerOn"||k==="freeOrder"||k==="decksOn") v=!!v;
+    if(k==="company"||k==="docRef"||k==="signTitle"||k==="invigilator"){ v=String(v==null?"":v); }
+    if(canonV(v)!==canonV(CFG[k])){ CFG[k]=v; changed=true; }
+  });
+  return changed;
+}
+/* D3 — son bulut denemesinin izi (rozet ayrıntısı için) */
+function noteCloudAttempt(ok){ if(state){ state.cloudLastAt=new Date().toISOString(); state.cloudLastOk=!!ok; } }
+function forceCloudSync(){
+  if(!state || !SB_ON) return;
+  lastCloudRetryAt=0;
+  if(state.phase==="summary"){ state.cloudVerified=false; cloudPushDone(); }
+  else cloudPushProgress();
+  toast(lang==="en"?"Sending…":"Gönderiliyor…");
+}
+function showSyncDetail(){
+  if(!state) return;
+  var L=function(tr,en){ return lang==="en"?en:tr; };
+  var st = state.cloudPending ? L("⚠ Bekliyor — buluta henüz gitmedi","⚠ Pending — not in the cloud yet")
+         : (state.cloudVerified ? L("☁ Buluta kaydedildi (doğrulandı)","☁ Saved to cloud (verified)") : L("☁ Gönderildi, henüz doğrulanmadı","☁ Sent, not yet verified"));
+  var last = state.cloudLastAt ? new Date(state.cloudLastAt).toLocaleString(lang==="en"?"en-GB":"tr-TR") : "—";
+  var res = state.cloudLastAt ? (state.cloudLastOk ? L("başarılı","success") : L("başarısız","failed")) : "—";
+  toast('<b>'+st+'</b><br>'+L("Son deneme","Last attempt")+': '+last+' · '+res+
+        '<br><span style="opacity:.8">'+L("Kimlik","Attempt")+': '+esc(state.attemptId||"")+' · '+BUILD_STAMP+'</span>'+
+        '<button id="appToastSend">'+L("Şimdi gönder","Send now")+'</button>', state.cloudPending?"warn":"ok", true);
+  var b=document.getElementById("appToastSend"); if(b) b.onclick=function(){ forceCloudSync(); };
 }
 function cloudRowToRec(row){
   var rec = (row.record && typeof row.record==="object") ? JSON.parse(JSON.stringify(row.record)) : {};
@@ -862,7 +936,7 @@ function refreshCloud(then){
   if(!isAdminAuthed()){ if(then) then(); return; }
   sbFetchAll().then(function(rows){
     if(rows){ cloudCache = rows.map(cloudRowToRec); cloudLastSync = Date.now(); cloudError=false; cloudFails=0; }
-    else { cloudError=true; cloudFails++; if(cloudCache===null) cloudCache=[]; }
+    else { cloudError=true; cloudFails++; cloudLastFailAt=Date.now(); if(cloudCache===null) cloudCache=[]; }
     if(then) then();
   });
 }
@@ -889,8 +963,12 @@ function deleteRecords(list, then){
   list.forEach(function(r){
     if(r && r.cloudStatus){
       // optimistic: mark the cached copy deleted so it drops from the list at once
-      var c=(cloudCache||[]).filter(function(x){return x.attemptId===r.attemptId;})[0]; if(c) c.cloudStatus="deleted";
-      sbUpdate(r.attemptId, { status:"deleted" }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(){ refreshCloud(); });
+      var c=(cloudCache||[]).filter(function(x){return x.attemptId===r.attemptId;})[0]; var prev=c?c.cloudStatus:null; if(c) c.cloudStatus="deleted";
+      /* C6: sonucu kontrol et — buluta yazılamadıysa iyimser işareti geri al ve söyle */
+      sbUpdate(r.attemptId, { status:"deleted" }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(ok){
+        if(!ok){ if(c) c.cloudStatus=prev; toast(lang==="en"?"⚠ Delete did not reach the cloud — record kept.":"⚠ Silme buluta yazılamadı — kayıt duruyor.","warn"); }
+        refreshCloud(function(){ if(adminUnlocked) renderAdmin(); });
+      });
     }
     var i = loc.findIndex(function(x){ return x.attemptId===r.attemptId; });
     if(i>=0) loc.splice(i,1);
@@ -923,7 +1001,10 @@ function restoreRecord(r, then){
     var back = (r.mods && r.mods.length && r.finishedAt && r.total!=null) ? "completed"
              : (r.passedCount!=null ? "in_progress" : "registered");
     var c=(cloudCache||[]).filter(function(x){return x.attemptId===r.attemptId;})[0]; if(c) c.cloudStatus=back;
-    sbUpdate(r.attemptId, { status: back }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(){ refreshCloud(); });
+    sbUpdate(r.attemptId, { status: back }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(ok){
+      if(!ok){ if(c) c.cloudStatus="deleted"; toast(lang==="en"?"⚠ Restore did not reach the cloud.":"⚠ Geri getirme buluta yazılamadı.","warn"); }
+      refreshCloud(function(){ if(adminUnlocked) renderAdmin(); });
+    });
   }
   if(then) then();
 }
@@ -956,7 +1037,7 @@ function cloudIdRow(){
 function cloudPushStart(){
   if(!SB_ON || !state) return;
   var r=cloudIdRow(); r.status="registered"; r.pass_mark=CFG.passMark; r.module_count=state.modules.length;
-  sbInsert(r).then(function(ok){ if(state){ if(!ok) state.cloudPending=true; save(); } updateSyncBadge(); });
+  sbInsert(r).then(function(ok){ noteCloudAttempt(ok); if(state){ if(!ok) state.cloudPending=true; save(); } updateSyncBadge(); });
 }
 function cloudPushProgress(){
   if(!SB_ON || !state) return;
@@ -965,7 +1046,7 @@ function cloudPushProgress(){
     sbSave(cloudIdRow(), {
       status:"in_progress", rank:rec.rank, vessel:rec.vessel, seamans_book_no:rec.sicil,
       pass_mark:rec.passMark, module_count:rec.moduleCount, passed_count:rec.passedCount, record:rec
-    }).then(function(ok){ if(state){ state.cloudPending=!ok; if(ok) state.cloudVerified=true; save(); } updateSyncBadge(); });
+    }).then(function(ok){ noteCloudAttempt(ok); if(state){ state.cloudPending=!ok; if(ok) state.cloudVerified=true; save(); } updateSyncBadge(); });
   }catch(e){ if(state){ state.cloudPending=true; save(); } updateSyncBadge(); }
 }
 /* cloudVerified: bu cihazdan buluta EN AZ BİR gerçek (satır etkileyen) yazma başarıldı mı?
@@ -982,6 +1063,7 @@ function cloudPushDone(){
       total:rec.total, pass_mark:rec.passMark, focus_total:rec.focusTotal, auto_any:rec.autoAny,
       duration_ms:rec.durationMs, finished_at:rec.finishedAt, cert_no:rec.certNo, record:rec
     }).then(function(ok){
+      noteCloudAttempt(ok);
       if(state){ if(ok){ state.cloudDone=true; state.cloudVerified=true; state.cloudPending=false; } else state.cloudPending=true; save(); }
       updateSyncBadge();
     });
@@ -2132,7 +2214,7 @@ function applyChrome(){
   document.documentElement.lang = lang;
   document.getElementById("topCompany").textContent = CFG.company;
   document.getElementById("topSub").textContent = T().topSub;
-  document.getElementById("footNote").textContent = T().footNote();
+  document.getElementById("footNote").textContent = T().footNote() + "  ·  " + BUILD_STAMP;   /* D2: sürüm damgası */
   var lb=document.getElementById("logoBtn");
   if(lb){ lb.innerHTML=logoHTML(40); lb.classList.toggle("haslogo", !!CFG.logo); }
   document.getElementById("lgTr").classList.toggle("active", lang==="tr");
@@ -3779,6 +3861,11 @@ function renderSettings(){
     var chosen=[].slice.call(document.querySelectorAll(".mchk:checked")).map(function(x){return x.value;});
     CFG.modules = chosen.length? ALL_CODES.filter(function(c){return chosen.indexOf(c)>=0;}) : ALL_CODES.slice();
     saveCfg(); host.innerHTML=""; applyChrome();
+    /* C1: sınav ayarlarını tüm cihazlara gönder ve sonucu GÖSTER */
+    pushCloudExamCfg().then(function(ok){
+      toast(ok ? (lang==="en"?"☁ Settings sent to all devices":"☁ Ayarlar tüm cihazlara gönderildi")
+               : (lang==="en"?"⚠ Settings saved on this device only — cloud write failed (sign in again?)":"⚠ Ayarlar sadece bu cihazda kaydedildi — buluta yazılamadı (yeniden giriş gerekebilir)"), ok?"ok":"warn");
+    });
     if(adminUnlocked) renderAdmin();
     else if(!state) renderIntro(load()&&load().phase?load():null);
     else render();
@@ -3972,6 +4059,10 @@ function crewShareHref(kind, p, vessel, link, base){
    liveRecs = renderAdmin() içinde zaten hesaplanmış, silinmemiş tüm sınav kayıtları. */
 function buildAuditSummaryReport(candidateRows, liveRecs){
   var byAid={}; (liveRecs||[]).forEach(function(r){ if(r.attemptId) byAid[r.attemptId]=r; });
+  /* C3 (Denetim Özeti): ad+gemi yedek eşleme — Gemi Panosu ile aynı kural */
+  var nvKey=function(n,v){ return String(n||"").trim().toUpperCase().replace(/\s+/g," ")+"|"+String(v||"").trim().toUpperCase(); };
+  var byNV={}; (liveRecs||[]).forEach(function(r){ var k=nvKey(r.name,r.vessel); if(!byNV[k] || recDoneCount(r)>recDoneCount(byNV[k])) byNV[k]=r; });
+  var recFor=function(u){ return byAid[u.attempt_id] || byNV[nvKey(u.display_name,u.vessel)] || null; };
   function personStatus(rec){
     if(!rec) return "none";
     var mods=rec.mods||[], total=rec.moduleCount||mods.length||0;
@@ -3984,7 +4075,7 @@ function buildAuditSummaryReport(candidateRows, liveRecs){
   var groups={};
   (candidateRows||[]).forEach(function(u){ var v=(u.vessel||"—").trim()||"—"; (groups[v]=groups[v]||[]).push(u); });
   var vesselRows=Object.keys(groups).sort().map(function(v){
-    var people=groups[v].map(function(u){ return personStatus(byAid[u.attempt_id]); });
+    var people=groups[v].map(function(u){ return personStatus(recFor(u)); });
     var c={donepass:0,donefail:0,prog:0,none:0}; people.forEach(function(st){ c[st]++; });
     return '<tr><td><b>🚢 '+esc(v)+'</b></td><td class="c">'+people.length+'</td>'+
       '<td class="c" style="color:#1c7a3c;font-weight:700">'+c.donepass+'</td>'+
@@ -4175,7 +4266,9 @@ function renderAdmin(){
 
   if(isAdminAuthed() && adminPoll===null){
     var tick=function(){
-      if(!adminUnlocked || !document.getElementById("aSearch") || cloudFails>=3){ if(adminPoll){clearInterval(adminPoll);adminPoll=null;} return; }
+      if(!adminUnlocked || !document.getElementById("aSearch")){ if(adminPoll){clearInterval(adminPoll);adminPoll=null;} return; }
+      /* C5: 3 ardışık hatadan sonra KALICI durmak yerine 60 sn geri çekil, sonra kendiliğinden tekrar dene */
+      if(cloudFails>=3 && (Date.now()-cloudLastFailAt) < 60000) return;
       refreshCloud(function(){ if(adminUnlocked && document.getElementById("aSearch")) renderAdmin(); });
     };
     adminPoll=setInterval(tick, 20000);
@@ -4553,6 +4646,11 @@ function renderAdmin(){
     var box=document.getElementById("aFleetBox"), wrap=document.getElementById("aFleetWrap");
     if(!box) return;
     var byAid={}; liveRecs.forEach(function(r){ if(r.attemptId) byAid[r.attemptId]=r; });
+    /* C3: kişisel link kullanmadan (elle formla) kayıt olanların attempt_id'si hesap kaydıyla eşleşmez —
+       ad+gemi ile yedek eşleme; birden fazla varsa en dolu olanı al. */
+    var nvKey=function(n,v){ return String(n||"").trim().toUpperCase().replace(/\s+/g," ")+"|"+String(v||"").trim().toUpperCase(); };
+    var byNV={}; liveRecs.forEach(function(r){ var k=nvKey(r.name,r.vessel); if(!byNV[k] || recDoneCount(r)>recDoneCount(byNV[k])) byNV[k]=r; });
+    function recFor(u){ return byAid[u.attempt_id] || byNV[nvKey(u.display_name,u.vessel)] || null; }
     function personStatus(rec){
       if(!rec) return "none";
       var mods=rec.mods||[], total=rec.moduleCount||mods.length||0;
@@ -4572,7 +4670,7 @@ function renderAdmin(){
       var groups={}; fleetData.forEach(function(u){ var v=(u.vessel||"—").trim()||"—"; (groups[v]=groups[v]||[]).push(u); });
       var vessels=Object.keys(groups).sort();
       wrap.innerHTML=vessels.map(function(v){
-        var people=groups[v].map(function(u){ var rec=byAid[u.attempt_id]; return {u:u, rec:rec, st:personStatus(rec)}; });
+        var people=groups[v].map(function(u){ var rec=recFor(u); return {u:u, rec:rec, st:personStatus(rec)}; });
         var c={donepass:0,donefail:0,prog:0,none:0}; people.forEach(function(x){ c[x.st]++; });
         var open=fleetOpenVessel===v;
         var head='<div class="fleet-head" data-v="'+esc(v)+'" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;margin-top:8px">'+
@@ -4599,12 +4697,12 @@ function renderAdmin(){
       wrap.querySelectorAll(".fleet-head").forEach(function(h){ h.onclick=function(){ var v=h.getAttribute("data-v"); fleetOpenVessel = (fleetOpenVessel===v) ? "" : v; render(); }; });
       wrap.querySelectorAll(".fleet-open").forEach(function(b){ b.onclick=function(){ var rec=byAid[b.getAttribute("data-aid")]; if(rec){ renderAdminDetail(rec); window.scrollTo(0,0); } }; });
       wrap.querySelectorAll(".fleet-copy-ns").forEach(function(b){ b.onclick=function(){
-        var v=b.getAttribute("data-v"); var names=(groups[v]||[]).filter(function(u){ return personStatus(byAid[u.attempt_id])==="none"; }).map(function(u){ return u.display_name; });
+        var v=b.getAttribute("data-v"); var names=(groups[v]||[]).filter(function(u){ return personStatus(recFor(u))==="none"; }).map(function(u){ return u.display_name; });
         copyText(names.join("\n"), b);
       }; });
       wrap.querySelectorAll(".fleet-certs").forEach(function(b){ b.onclick=function(){
         var v=b.getAttribute("data-v");
-        var recs=(groups[v]||[]).map(function(u){ return byAid[u.attempt_id]; }).filter(Boolean);
+        var recs=(groups[v]||[]).map(function(u){ return recFor(u); }).filter(Boolean);
         renderFleetCerts(v, recs); window.scrollTo(0,0);
       }; });
     }
@@ -5227,6 +5325,8 @@ try{ var sl=localStorage.getItem(LS_LANG); if(sl==="en"||sl==="tr") lang=sl; }ca
 var qp=null; try{ qp=new URLSearchParams(location.search); }catch(e){}
 applyChrome();
 pullCloudSettings();
+try{ console.log("İNKA Akademi build", BUILD_STAMP); }catch(e){}
+(function(){ var b=document.getElementById("cloudSyncBadge"); if(b) b.onclick=showSyncDetail; })();   /* D3 */
 /* Bekleyen ya da hiç doğrulanmamış bir bulut yazması varken, aday ekranı değiştirmese bile (ör. bitiş
    ekranında öylece dururken) 30 sn'de bir tekrar dene — retryCloudSyncIfPending kendi 15 sn kısıtına
    ve "doğrulandıysa hiç istek atma" kuralına zaten sahip, bu yüzden ek trafik yaratmaz. */
