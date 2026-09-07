@@ -489,6 +489,7 @@
         <button class="iconbtn" id="menuBtn" title="Menü" aria-label="Menü" aria-haspopup="true" aria-expanded="false">☰</button>
         <div class="menudrop" id="menuDrop" style="display:none" role="menu">
           <button id="menuDark" role="menuitem"></button>
+          <button id="menuPass" role="menuitem" style="display:none"></button>
           <button id="menuLogout" role="menuitem"></button>
         </div>
       </div>
@@ -525,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v53 · 2026-09-07 21:14";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v53 · 2026-09-07 22:20";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -598,6 +599,77 @@ function candidateLoginRPC(username, password, cb){
 }
 function candidatePasswordHash(username, password){
   return h32(String(username).trim().toLowerCase()+"|"+String(password)+"|inka-candidate-user-v1");
+}
+function adminPasswordHash(username, password){
+  return h32(String(username).trim().toLowerCase()+"|"+String(password)+"|inka-admin-user-v1");
+}
+/* Şifremi değiştir: bu SEKME kullanıcı adı+şifreyle giriş yapmış hangi ADAY hesabıyla ilgili
+   (kişi başına ilerleme yuvası gibi, sekmeye özel — sessionStorage). service_role yapıştırarak
+   giren yönetici veya linkle/kimliksiz gelen aday için boş kalır, menüde madde gizli olur. */
+var SS_CAND_USER = "gsm_cand_user_v1";
+function setCandSessionUser(u){ try{ if(u) sessionStorage.setItem(SS_CAND_USER, u); else sessionStorage.removeItem(SS_CAND_USER); }catch(e){} }
+function candSessionUser(){ try{ return sessionStorage.getItem(SS_CAND_USER)||""; }catch(e){ return ""; } }
+/* Her iki fonksiyon da eski şifreyi VERİTABANI İÇİNDE doğrular (security definer) — burada
+   sadece hash'ler gönderilir, düz şifre asla ağa çıkmaz. cb(true|false). */
+function candidateChangePasswordRPC(username, oldHash, newHash, newPlain, cb){
+  sbFetch(SB_URL+"/rest/v1/rpc/candidate_change_password", {
+    method:"POST", headers:sbAnonHeaders(),
+    body:JSON.stringify({p_username:String(username).trim().toLowerCase(), p_old_hash:oldHash, p_new_hash:newHash, p_new_plain:newPlain})
+  }).then(function(r){ return r.ok ? r.json() : false; }).then(function(v){ cb(v===true); }).catch(function(){ cb(false); });
+}
+function adminChangePasswordRPC(username, oldHash, newHash, cb){
+  sbFetch(SB_URL+"/rest/v1/rpc/admin_change_password", {
+    method:"POST", headers:sbAnonHeaders(),
+    body:JSON.stringify({p_username:String(username).trim().toLowerCase(), p_old_hash:oldHash, p_new_hash:newHash})
+  }).then(function(r){ return r.ok ? r.json() : false; }).then(function(v){ cb(v===true); }).catch(function(){ cb(false); });
+}
+/* Modal: #modalHost aynı kalıp (renderSettings ile aynı) — hesap türünü (aday/yönetici)
+   candSessionUser()/LS_ADMIN_USER'a bakarak kendi belirler, kullanıcıya sormaz. */
+function renderChangePasswordModal(){
+  var cu=candSessionUser();
+  var au=""; try{ au=localStorage.getItem(LS_ADMIN_USER)||""; }catch(e){}
+  var isCand = !!cu, username = isCand ? cu : au;
+  if(!username) return;
+  var L=function(tr,en){ return lang==="en"?en:tr; };
+  var host=document.getElementById("modalHost");
+  host.innerHTML='<div class="modal-bg" id="pmbg"><div class="modal" role="dialog" aria-modal="true" style="max-width:420px">'+
+    '<h2>'+L("Şifremi değiştir","Change my password")+' <button class="closex" id="pmx" aria-label="'+L("Kapat","Close")+'">×</button></h2>'+
+    '<p class="lead" style="font-size:.82rem">'+L("Hesap: ","Account: ")+'<b>'+esc(username)+'</b>'+(isCand?"":" ("+L("yönetici","admin")+")")+'</p>'+
+    '<label class="fld" for="pmOld">'+L("Mevcut şifre","Current password")+'</label><input type="password" id="pmOld" autocomplete="current-password">'+
+    '<label class="fld" for="pmNew">'+L("Yeni şifre (en az 6 karakter)","New password (at least 6 characters)")+'</label><input type="password" id="pmNew" autocomplete="new-password">'+
+    '<label class="fld" for="pmNew2">'+L("Yeni şifre (tekrar)","New password (again)")+'</label><input type="password" id="pmNew2" autocomplete="new-password">'+
+    '<div class="note warn" id="pmErr" style="display:none"></div>'+
+    '<div class="note" id="pmOk" style="display:none;color:var(--ok)"></div>'+
+    '<div class="btnrow"><button class="btn" id="pmGo">'+L("Değiştir","Change")+'</button></div>'+
+  '</div></div>';
+  var close=function(){ host.innerHTML=""; };
+  document.getElementById("pmx").onclick=close;
+  document.getElementById("pmbg").onclick=function(e){ if(e.target.id==="pmbg") close(); };
+  document.getElementById("pmGo").onclick=function(){
+    var oldP=document.getElementById("pmOld").value, n1=document.getElementById("pmNew").value, n2=document.getElementById("pmNew2").value;
+    var e=document.getElementById("pmErr"), ok=document.getElementById("pmOk"), btn=document.getElementById("pmGo");
+    e.style.display="none"; ok.style.display="none";
+    if(!oldP || !n1){ e.style.display="block"; e.textContent=L("Tüm alanları doldurun.","Fill in all fields."); return; }
+    if(n1.length<6){ e.style.display="block"; e.textContent=L("Yeni şifre en az 6 karakter olmalı.","New password must be at least 6 characters."); return; }
+    if(n1!==n2){ e.style.display="block"; e.textContent=L("Yeni şifreler eşleşmiyor.","New passwords don't match."); return; }
+    btn.disabled=true; btn.textContent="…";
+    function done(success){
+      btn.disabled=false; btn.textContent=L("Değiştir","Change");
+      if(success){
+        ok.style.display="block"; ok.textContent=L("✅ Şifreniz değiştirildi.","✅ Your password has been changed.");
+        document.getElementById("pmOld").value=""; document.getElementById("pmNew").value=""; document.getElementById("pmNew2").value="";
+        setTimeout(close, 1600);
+      } else {
+        e.style.display="block"; e.textContent=L("Mevcut şifre yanlış.","Current password is incorrect.");
+      }
+    }
+    if(isCand){
+      candidateChangePasswordRPC(username, candidatePasswordHash(username, oldP), candidatePasswordHash(username, n1), n1, done);
+    } else {
+      adminChangePasswordRPC(username, adminPasswordHash(username, oldP), adminPasswordHash(username, n1), done);
+    }
+  };
+  var of=document.getElementById("pmOld"); if(of) of.focus();
 }
 /* "Ad Soyad" -> "a.soyad" biçiminde okunaklı bir kullanıcı adı üretir (Türkçe karakterleri
    ASCII'ye çevirir); aynı üretimde aynı kullanıcı adı ikinci kez çıkarsa sonuna 2,3.. eklenir. */
@@ -2253,6 +2325,12 @@ applyTheme();
   function openMenu(){
     var lo=document.getElementById("menuLogout");
     lo.textContent = lang==="en" ? "🚪 Sign out" : "🚪 Çıkış Yap";
+    /* Şifremi değiştir: sadece kullanıcı adı+şifreyle giriş yapmış biri için anlamlı —
+       service_role yapıştırarak açan yönetici ya da linkle/kimliksiz gelen aday için
+       değiştirilecek bir "hesap şifresi" yok, bu yüzden madde gizli kalır. */
+    var pw=document.getElementById("menuPass");
+    var canPass = !!candSessionUser() || (isAdminAuthed() && !!(function(){ try{ return localStorage.getItem(LS_ADMIN_USER); }catch(e){ return ""; } })());
+    if(pw){ pw.style.display = canPass ? "block" : "none"; pw.textContent = lang==="en" ? "🔑 Change my password" : "🔑 Şifremi değiştir"; }
     applyTheme();
     mDrop.style.display="block"; mBtn.setAttribute("aria-expanded","true");
     var r=mBtn.getBoundingClientRect();
@@ -2263,8 +2341,10 @@ applyTheme();
   mBtn.onclick=function(ev){ ev.stopPropagation(); if(mDrop.style.display==="none") openMenu(); else closeMenu(); };
   document.addEventListener("click", function(ev){ if(!mDrop.contains(ev.target) && ev.target!==mBtn) closeMenu(); });
   document.getElementById("menuDark").onclick=function(){ toggleTheme(); };
+  document.getElementById("menuPass").onclick=function(){ closeMenu(); renderChangePasswordModal(); };
   document.getElementById("menuLogout").onclick=function(){
     closeMenu();
+    setCandSessionUser("");
     if(isAdminAuthed()) logoutAdmin();
     renderLoginGate();
     window.scrollTo(0,0);
@@ -4344,6 +4424,7 @@ function renderLoginGate(){
         /* Bu sekmenin kimliği artık bu aday (kişi başına yuva, v47). Bulut bayat/boşsa ("kayıt oldu"
            satırı → cloudState null) cihazdaki ilerleme GÖSTERİLİR, sessizce ezilmez. */
         setActiveAid(prefill.aid);
+        setCandSessionUser(u);   /* "Şifremi değiştir" menü maddesi için — kişisel linkle gelenlerde boş kalır */
         fetchExamStateByAid(prefill.aid, function(cloudState){
           var best=pickFullerState(localStateFor(prefill.aid), cloudState);
           if(best){ state=best; save(); render(); window.scrollTo(0,0); }
