@@ -2028,6 +2028,14 @@ function fitCertsToPage(){
   });
 }
 window.addEventListener("beforeprint", fitCertsToPage);
+try{
+  if(window.matchMedia){
+    var __certPrintMQ=window.matchMedia("print");
+    var __certPrintMQHandler=function(m){ if(m.matches) fitCertsToPage(); };
+    if(__certPrintMQ.addEventListener) __certPrintMQ.addEventListener("change", __certPrintMQHandler);
+    else if(__certPrintMQ.addListener) __certPrintMQ.addListener(__certPrintMQHandler);
+  }
+}catch(e){}
 function doPrint(kind){
   var s=document.getElementById("dynPage");
   if(!s){ s=document.createElement("style"); s.id="dynPage"; document.head.appendChild(s); }
@@ -2069,6 +2077,8 @@ function standaloneDoc(bodyHtml, title, landscape, marginmm){
         '});'+
       '}'+
       'window.addEventListener("beforeprint", fitCertsToPage);'+
+      'try{ if(window.matchMedia){ var __mq=window.matchMedia("print"); var __h=function(m){ if(m.matches) fitCertsToPage(); }; '+
+        'if(__mq.addEventListener) __mq.addEventListener("change", __h); else if(__mq.addListener) __mq.addListener(__h); } }catch(e){}'+
       'renderPendingQRCodes();'+
       'window.addEventListener("load",function(){setTimeout(function(){try{window.print()}catch(e){}},400)});'+
     '</scr'+'ipt>'+
