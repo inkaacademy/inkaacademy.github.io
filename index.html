@@ -744,11 +744,23 @@ function sbFetchAll(){
 }
 /* hdrs verilirse (yönetici işlemleri: silme/geri getirme/düzenleme) o başlıklarla, verilmezse
    (sınav sırasında cloudPushProgress/Done → sbSave) her zamanki gibi zayıf/yazma-anahtarıyla. */
+/* 0 satır etkileyen bir PATCH artık BAŞARISIZ sayılır. Ölçüldü (07.09.2026): RLS satırı
+   göstermediğinde PostgREST 204 döndürür ama hiçbir şeyi değiştirmez; eskiden r.ok=true görülüp
+   cloudPending=false yapılıyor, rozet "☁ kaydedildi" diyor ve ASLA tekrar denenmiyordu — adayların
+   ilerlemesi sessizce kayboluyordu. "Prefer: count=exact" ile Content-Range okunur; ".../0" ise
+   false döner → cloudPending kalır, rozet ⚠ gösterir, bir sonraki ekranda tekrar denenir. */
 function sbUpdate(attemptId, patch, hdrs){
   if(!SB_ON || !attemptId) return Promise.resolve(false);
+  var h = hdrs || sbHeaders({});
+  h["Prefer"] = "return=minimal, count=exact";
   return sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?attempt_id=eq."+encodeURIComponent(attemptId),{
-    method:"PATCH", headers: hdrs || sbHeaders({ "Prefer":"return=minimal" }), body:JSON.stringify(patch)
-  }).then(function(r){ return r.ok; }).catch(function(){ return false; });
+    method:"PATCH", headers: h, body:JSON.stringify(patch)
+  }).then(function(r){
+    if(!r.ok) return false;
+    var cr = ""; try{ cr = r.headers.get("Content-Range") || ""; }catch(e){}
+    if(/\/0\s*$/.test(cr)) return false;   /* eşleşen/güncellenen satır yok */
+    return true;
+  }).catch(function(){ return false; });
 }
 /* Ayarlar (watchRequired ve roleModules) tek bir cihazın localStorage'ında kalmasın diye
    buluta da yazılır/okunur — aksi halde yönetici Ayarlar'dan bir şeyi değiştirse bile o değişiklik
@@ -1653,10 +1665,11 @@ var STR = {
   setLogoClear:"Kaldır",
   setLogoBig:"Dosya çok büyük (en çok 600 KB).",
   setModules:"Sınava girecek modüller",
-  setDecks:"Modül öncesi eğitim sunumu zorunlu",
+  setDecks:"Modül öncesi eğitim sunumu/videosu GÖSTERİLSİN",
   setDeckMin:"Sunumda en az bekleme (saniye)",
-  setWatchRequired:"Video/sunumun tamamını izleme zorunlu",
-  setWatchRequiredHint:"Kapatılırsa adaylar video/sunum bitmeden 'Sınava geç'e basabilir — yukarıdaki bekleme süresi/gerçek video uzunluğu uygulanmaz.",
+  setWatchRequired:"Sunum/video süresi kadar BEKLEME zorunlu (geri sayım)",
+  setWatchRequiredHint:"Kapatılırsa sunum/video YİNE gösterilir; sadece geri sayım kalkar, aday onay kutusunu işaretleyip hemen başlayabilir.",
+  setDecksOnHint:"DİKKAT: Bu anahtar KAPATILIRSA sunum/video adımı TAMAMEN ATLANIR, aday doğrudan sorulara geçer. Sadece geri sayımı kaldırmak istiyorsanız alttaki 'BEKLEME zorunlu' anahtarını kullanın.",
   setDecksHint:"Sunum dili = uygulama dili. Her satır: «kod | pdf yolu» (decks/01.pdf veya decks/tr/01.pdf ya da tam adres). Bir dilde dosya yoksa diğer dile düşülür.",
   setLog:"Sonuç kayıtları (bu cihaz)",
   setLogEmpty:"Henüz kayıt yok.",
@@ -1873,10 +1886,11 @@ var STR = {
   setLogoClear:"Remove",
   setLogoBig:"File too large (max 600 KB).",
   setModules:"Modules included in the exam",
-  setDecks:"Require a training deck before each module",
+  setDecks:"SHOW the training deck/video before each module",
   setDeckMin:"Minimum dwell on deck (seconds)",
-  setWatchRequired:"Must watch the full video/presentation",
-  setWatchRequiredHint:"When off, candidates can proceed to the exam before the video/presentation finishes — the dwell time/real video length above is not enforced.",
+  setWatchRequired:"Require WAITING the full deck/video length (countdown)",
+  setWatchRequiredHint:"When off, the deck/video is STILL shown; only the countdown is removed — candidates tick the confirmation and can start at once.",
+  setDecksOnHint:"CAUTION: turning this OFF SKIPS the deck/video step entirely — candidates go straight to the questions. To remove only the countdown, use the 'WAITING' switch below.",
   setDecksHint:"Deck language = app language. Each line: «code | pdf path» (decks/01.pdf or decks/tr/01.pdf or absolute). If a file is missing in one language it falls back to the other.",
   setLog:"Result log (this device)",
   setLogEmpty:"No records yet.",
@@ -3592,6 +3606,7 @@ function renderSettings(){
       '<div class="modchecks">'+modChecks+'</div></div>'+
     '<div style="padding:12px 0;border-bottom:1px solid var(--line)">'+
       '<div class="setrow"><label for="sDecksOn">'+t.setDecks+'</label><label class="switch"><input type="checkbox" id="sDecksOn"'+(CFG.decksOn?" checked":"")+'><span></span></label></div>'+
+      '<label class="hint" style="display:block;margin:-4px 0 8px;color:var(--bad)">'+t.setDecksOnHint+'</label>'+
       '<div class="setrow"><label for="sWatchReq">'+t.setWatchRequired+'</label><label class="switch"><input type="checkbox" id="sWatchReq"'+(CFG.watchRequired!==false?" checked":"")+'><span></span></label></div>'+
       '<label class="hint" style="display:block;margin:-4px 0 4px">'+t.setWatchRequiredHint+'</label>'+
       '<div class="setrow"><label>'+t.setDeckMin+'</label><input type="number" id="sDeckMin" min="0" max="600" value="'+(+CFG.deckMinSec||0)+'"></div>'+
