@@ -530,6 +530,7 @@ var savedVesselsList = null;
 /* Gemi panosu + zor sorular kutuları (aynı nedenle renderAdmin() dışında). */
 var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "";
 var hardBoxOpen = false;
+var auditBoxOpen = false;
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
 var SB_URL   = "https://hoauaumaooxgtmjxxelq.supabase.co";
@@ -679,7 +680,8 @@ function clearAdminKey(){ ADMIN_KEY=""; cloudCache=null; try{ localStorage.remov
 function activeAdminKey(){ return ADMIN_UI ? SB_KEY : ADMIN_KEY; }
 function isAdminAuthed(){ return !!activeAdminKey(); }
 var LS_ADMIN_RANK = "gsm_admin_rank_v1";
-function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); localStorage.removeItem(LS_ADMIN_RANK); }catch(e){} }
+var LS_ADMIN_USER = "gsm_admin_user_v1";
+function logoutAdmin(){ if(ADMIN_UI) clearServiceKey(); else clearAdminKey(); try{ localStorage.removeItem(LS_ADMIN_NAME); localStorage.removeItem(LS_ADMIN_RANK); localStorage.removeItem(LS_ADMIN_USER); }catch(e){} }
 function sbAdminHeaders(extra){
   var k=activeAdminKey();
   var h={ "apikey":k, "Authorization":"Bearer "+k, "Content-Type":"application/json" };
@@ -773,7 +775,24 @@ function refreshCloud(then){
   });
 }
 /* Local change applies IMMEDIATELY (then()); cloud sync runs in the background and never blocks the UI */
+/* İşlem geçmişi: kim (admin_username/display), ne zaman (ts, sunucu tarafında default now()),
+   ne yaptı (action), neye (target), ne değişti (detail). Best-effort — tablo/script henüz
+   kurulmamışsa veya bağlantı sorunu olursa SESSİZCE yutulur; asıl işlemi asla engellemez/geciktirmez. */
+function logAdminAction(action, target, detail){
+  if(!isAdminAuthed()) return;
+  var an="", au=""; try{ an=localStorage.getItem(LS_ADMIN_NAME)||""; au=localStorage.getItem(LS_ADMIN_USER)||""; }catch(e){}
+  try{
+    sbFetch(SB_URL+"/rest/v1/admin_audit_log", {
+      method:"POST", headers:sbAdminHeaders({"Prefer":"return=minimal"}),
+      body:JSON.stringify({
+        admin_username: au || "(service_role)", admin_display_name: an || "?",
+        action: String(action||"").slice(0,100), target: String(target||"").slice(0,500), detail: String(detail||"").slice(0,1000)
+      })
+    }, 5000).catch(function(){});
+  }catch(e){}
+}
 function deleteRecords(list, then){
+  logAdminAction("delete_exam_record", (list||[]).map(function(r){ return (r.name||"?")+" ("+(r.attemptId||"")+")"; }).join("; "), (list||[]).length+" kayıt silindi");
   var loc = loadRecords();
   list.forEach(function(r){
     if(r && r.cloudStatus){
@@ -788,6 +807,7 @@ function deleteRecords(list, then){
   if(then) then();
 }
 function restoreRecord(r, then){
+  if(r){ logAdminAction("restore_exam_record", (r.name||"?")+" ("+(r.attemptId||"")+")", ""); }
   if(r && r.cloudStatus==="deleted"){
     var back = (r.mods && r.mods.length && r.finishedAt && r.total!=null) ? "completed"
              : (r.passedCount!=null ? "in_progress" : "registered");
@@ -797,6 +817,11 @@ function restoreRecord(r, then){
   if(then) then();
 }
 function patchRecord(r, patch, then){
+  (function(){
+    var changed=[];
+    ["name","rank","vessel","sicil"].forEach(function(k){ if((r[k]||"")!==(patch[k]||"")) changed.push(k+": \""+(r[k]||"")+"\" → \""+(patch[k]||"")+"\""); });
+    if(changed.length) logAdminAction("edit_exam_record", (r.name||"?")+" ("+(r.attemptId||"")+")", changed.join("; "));
+  })();
   var loc=loadRecords(), i=loc.findIndex(function(x){return x.attemptId===r.attemptId;});
   if(i>=0){ loc[i].name=patch.name; loc[i].rank=patch.rank; loc[i].vessel=patch.vessel; loc[i].sicil=patch.sicil; saveRecords(loc); }
   var c=(cloudCache||[]).filter(function(x){return x.attemptId===r.attemptId;})[0];
@@ -3179,6 +3204,61 @@ function renderAllCerts(){
   };
   document.getElementById("btnBackCert").onclick=function(){ certEl.style.display="none"; renderCertList(); window.scrollTo(0,0); };
 }
+/* Bir geminin TÜM geçen adaylarının TÜM geçtiği modül sertifikalarını (+ hak edenlerin genel
+   sertifikasını) tek bir "yazdır/PDF" akışına yığar — renderAllCerts()'in aynı mantığı, tek kişi
+   yerine bir liste record üzerinde. Fleet Panosu'ndaki "📄 Sertifikaları indir/yazdır" ile açılır. */
+function renderFleetCerts(vessel, recsList){
+  stopTimer(); recEl.style.display="none";
+  var eligible=(recsList||[]).filter(function(rec){ return rec && (rec.mods||[]).some(function(m){return m.passed;}); });
+  if(!eligible.length){
+    alert(lang==="en" ? "No passed certificates yet for this vessel." : "Bu gemi için henüz geçilmiş sertifika yok.");
+    return;
+  }
+  var vurl=verifyBaseUrl(), pages=[];
+  eligible.forEach(function(rec){
+    var passed=(rec.mods||[]).filter(function(m){ return m.passed; });
+    var total=rec.moduleCount||(rec.mods||[]).length;
+    var d=certDates(rec);
+    passed.forEach(function(m){
+      var syl=SYLLABUS[m.code]||{title:m.name+" Training",items:[],ref:""};
+      pages.push('<div class="cert-page">'+inkaCertHTML(rec,{multi:true,
+        no:moduleCertNo(rec,m.code), iss:fmtYMD(d.issYMD), valid:fmtYMD(d.validYMD),
+        courseTitle:syl.title, items:syl.items, ref:syl.ref,
+        note:"Assessment passed with "+m.correct+" / 20 correct answers (pass mark "+(rec.passMark||CFG.passMark)+"/20).",
+        code:moduleCode(rec,m), vurl:vurl})+'</div>');
+    });
+    if(total>0 && passed.length===total){
+      var gi=passed.map(function(m){ return m.code+"  "+((SYLLABUS[m.code]||{}).title||m.name); });
+      pages.push('<div class="cert-page">'+inkaCertHTML(rec,{multi:true,
+        no:grandCertNo(rec), iss:fmtYMD(d.issYMD), valid:fmtYMD(d.validYMD),
+        courseTitle:"Fleet & Shore Personnel Combined Assessment Programme",
+        items:gi, ref:"Individual module certificates issued separately",
+        note:"All "+total+" modules completed with a total of "+rec.total+" / "+(total*20)+" correct answers.",
+        code:grandCode(rec), vurl:vurl})+'</div>');
+    }
+  });
+  var title=(lang==="en"?"All certificates — ":"Tüm sertifikalar — ")+vessel;
+  var lead=(lang==="en"
+    ? (pages.length+" certificates from "+eligible.length+" people, stacked below. Use Print, then your printer or 'Save as PDF' for one file.")
+    : (eligible.length+" kişiden "+pages.length+" sertifika alt alta hazırlandı. 'Yazdır'a basıp yazıcıdan veya 'PDF olarak kaydet' ile tek dosya alın."));
+  certEl.innerHTML=
+   '<div class="card no-print" style="text-align:center">'+
+     '<h2>'+esc(title)+'</h2>'+
+     '<p class="lead" style="margin:0 auto">'+esc(lead)+'</p>'+
+     '<div class="note" style="text-align:left;margin-top:10px">'+T().printHint+'</div>'+
+     '<div class="btnrow" style="justify-content:center">'+
+       '<button class="btn gold" id="btnPrintAll">'+T().printAllBtn+'</button>'+
+       '<button class="btn ghost" id="btnDlAll">'+T().dlHtmlBtn+'</button>'+
+       '<button class="btn ghost" id="btnBackCert">'+(lang==="en"?"← Back":"← Geri")+'</button></div></div>'+
+   '<div class="all-certs">'+pages.join("")+'</div>';
+  certEl.style.display="block"; app.innerHTML="";
+  renderPendingQRCodes();
+  document.getElementById("btnPrintAll").onclick=function(){ doPrint("cert"); };
+  document.getElementById("btnDlAll").onclick=function(){
+    downloadCertDoc(document.querySelector(".all-certs").innerHTML, vessel+" - Tum Sertifikalar", false, 0);
+  };
+  document.getElementById("btnBackCert").onclick=function(){ certEl.style.display="none"; renderAdmin(); window.scrollTo(0,0); };
+}
 function makeDemoRecord(){
   var codes=CFG.modules.slice(), bc=byCode("tr"), now=Date.now();
   var mods=codes.map(function(c,i){
@@ -3685,7 +3765,7 @@ function renderLoginGate(){
     e.style.display="none"; btn.textContent="…"; btn.disabled=true;
     adminLoginRPC(u, p, function(res){
       if(res){
-        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); localStorage.setItem(LS_ADMIN_RANK, res.rank||""); }catch(err){}
+        try{ localStorage.setItem(LS_ADMIN_NAME, res.display_name||u); localStorage.setItem(LS_ADMIN_RANK, res.rank||""); localStorage.setItem(LS_ADMIN_USER, u); }catch(err){}
         if(ADMIN_UI) setServiceKey(res.service_key); else setAdminKey(res.service_key);
         adminUnlocked=true; cloudCache=null; cloudFails=0;
         if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
@@ -3835,6 +3915,7 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
       '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
       '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
+      '<button class="btn sm ghost" id="aAudit">📜 '+(lang==="en"?"Activity log":"İşlem Geçmişi")+'</button>'+
       '<button class="btn sm ghost" id="aKeys">🔑 '+t.admKeysBtn+'</button>'+
       (ADMIN_UI ? '<button class="btn sm ghost" id="aUsers">🔐 Kullanıcılar</button>' : '')+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
@@ -3880,6 +3961,13 @@ function renderAdmin(){
         ? "Questions candidates get wrong most often (blank counts as wrong, at least 3 attempts). A very high rate usually means either the question is unclear or the training does not cover that point."
         : "Adayların en çok yanlış yaptığı sorular (boş = yanlış, en az 3 deneme). Çok yüksek oran genelde ya sorunun belirsiz olduğunu ya da eğitimin o noktayı anlatmadığını gösterir.")+'</div>'+
       '<div id="aHardWrap"></div>'+
+    '</div>'+
+    '<div id="aAuditBox" style="display:'+(auditBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Who did what and when — record deletes/restores/edits, admin account changes, candidate password resets. Nobody, including admins, can edit or clear this from the panel."
+        : "Kim ne zaman ne yaptı — kayıt silme/geri getirme/düzenleme, yönetici hesabı değişiklikleri, aday şifre yenilemeleri. Paneldeki hiç kimse (yöneticiler dahil) bunu değiştiremez/silemez.")+'</div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aAuditRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button></div>'+
+      '<div id="aAuditWrap" style="margin-top:8px"></div>'+
     '</div>'+
     '<div id="aSavedCrewsBox" style="display:'+(savedCrewsOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+
@@ -4070,13 +4158,21 @@ function renderAdmin(){
         }).join("");
         var notStarted=people.filter(function(x){ return x.st==="none"; }).map(function(x){ return x.u.display_name; });
         return head+'<div style="overflow-x:auto;margin-top:6px"><table class="rec crew-table"><thead><tr><th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.thStatus+'</th><th>'+t.admThModules+'</th><th>'+(lang==="en"?"Last activity":"Son işlem")+'</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-          (notStarted.length?'<div class="btnrow" style="margin-top:6px"><button class="btn sm ghost fleet-copy-ns" data-v="'+esc(v)+'">📋 '+(lang==="en"?"Copy not-started names":"Başlamayanları kopyala")+' ('+notStarted.length+')</button></div>':'');
+          '<div class="btnrow" style="margin-top:6px">'+
+            (notStarted.length?'<button class="btn sm ghost fleet-copy-ns" data-v="'+esc(v)+'">📋 '+(lang==="en"?"Copy not-started names":"Başlamayanları kopyala")+' ('+notStarted.length+')</button>':'')+
+            '<button class="btn sm ghost fleet-certs" data-v="'+esc(v)+'">📄 '+(lang==="en"?"Vessel certificates PDF":"Gemi Sertifikaları (PDF)")+'</button>'+
+          '</div>';
       }).join("");
       wrap.querySelectorAll(".fleet-head").forEach(function(h){ h.onclick=function(){ var v=h.getAttribute("data-v"); fleetOpenVessel = (fleetOpenVessel===v) ? "" : v; render(); }; });
       wrap.querySelectorAll(".fleet-open").forEach(function(b){ b.onclick=function(){ var rec=byAid[b.getAttribute("data-aid")]; if(rec){ renderAdminDetail(rec); window.scrollTo(0,0); } }; });
       wrap.querySelectorAll(".fleet-copy-ns").forEach(function(b){ b.onclick=function(){
         var v=b.getAttribute("data-v"); var names=(groups[v]||[]).filter(function(u){ return personStatus(byAid[u.attempt_id])==="none"; }).map(function(u){ return u.display_name; });
         copyText(names.join("\n"), b);
+      }; });
+      wrap.querySelectorAll(".fleet-certs").forEach(function(b){ b.onclick=function(){
+        var v=b.getAttribute("data-v");
+        var recs=(groups[v]||[]).map(function(u){ return byAid[u.attempt_id]; }).filter(Boolean);
+        renderFleetCerts(v, recs); window.scrollTo(0,0);
       }; });
     }
     function load(){
@@ -4133,6 +4229,43 @@ function renderAdmin(){
       if(hardBoxOpen) render();
     };
     if(hardBoxOpen) render();
+  })();
+  /* ---- 📜 İşlem Geçmişi ---- */
+  (function(){
+    var box=document.getElementById("aAuditBox"), wrap=document.getElementById("aAuditWrap");
+    if(!box) return;
+    function load(){
+      var rb=document.getElementById("aAuditRefresh"); if(rb){ rb.textContent="…"; rb.disabled=true; }
+      sbFetch(SB_URL+"/rest/v1/admin_audit_log?select=ts,admin_display_name,admin_username,action,target,detail&order=ts.desc&limit=100", { headers:sbAdminHeaders() })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(rows){
+          if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; }
+          if(!rows){ wrap.innerHTML='<div class="note warn">'+(lang==="en"?"Could not load — run supabase-10-islem-gecmisi.sql first.":"Yüklenemedi — önce supabase-10-islem-gecmisi.sql'i çalıştırın.")+'</div>'; return; }
+          if(!rows.length){ wrap.innerHTML='<div class="note">'+(lang==="en"?"No activity logged yet.":"Henüz kayıtlı işlem yok.")+'</div>'; return; }
+          var ACT={ delete_exam_record:["🗑",lang==="en"?"Deleted record(s)":"Kayıt(lar) silindi"],
+            restore_exam_record:["↩",lang==="en"?"Restored record":"Kayıt geri getirildi"],
+            edit_exam_record:["✏️",lang==="en"?"Edited record":"Kayıt düzenlendi"],
+            add_admin_user:["➕",lang==="en"?"Added admin":"Yönetici eklendi"],
+            edit_admin_user:["✏️",lang==="en"?"Edited admin":"Yönetici düzenlendi"],
+            delete_admin_user:["🗑",lang==="en"?"Deleted admin":"Yönetici silindi"],
+            reset_candidate_password:["🔄",lang==="en"?"Reset password":"Şifre yenilendi"] };
+          wrap.innerHTML='<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr><th>'+(lang==="en"?"When":"Ne zaman")+'</th><th>'+(lang==="en"?"Admin":"Yönetici")+'</th><th>'+(lang==="en"?"Action":"İşlem")+'</th><th>'+(lang==="en"?"Target":"Hedef")+'</th><th>'+(lang==="en"?"Detail":"Detay")+'</th></tr></thead><tbody>'+
+            rows.map(function(row){
+              var a=ACT[row.action]||["•",row.action];
+              return '<tr><td style="white-space:nowrap;font-size:.78rem">'+admFmtDate(row.ts)+'</td>'+
+                '<td>'+esc(row.admin_display_name||"?")+'</td>'+
+                '<td style="white-space:nowrap">'+a[0]+' '+esc(a[1])+'</td>'+
+                '<td style="font-size:.8rem">'+esc(row.target||"—")+'</td>'+
+                '<td style="font-size:.78rem;color:var(--muted)">'+esc(row.detail||"—")+'</td></tr>';
+            }).join("")+'</tbody></table></div>';
+        }).catch(function(){ if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; } wrap.innerHTML='<div class="note" style="color:var(--bad)">Bağlantı hatası.</div>'; });
+    }
+    document.getElementById("aAudit").onclick=function(){
+      auditBoxOpen=!auditBoxOpen; box.style.display=auditBoxOpen?"block":"none";
+      if(auditBoxOpen) load();
+    };
+    document.getElementById("aAuditRefresh").onclick=load;
+    if(auditBoxOpen) load();
   })();
   (function(){
     var listBtn=document.getElementById("aSavedList"), wrap=document.getElementById("savedVesselsWrap");
@@ -4278,6 +4411,7 @@ function renderAdmin(){
           }).then(function(r){
             if(!r.ok){ btn.textContent="🔄"; btn.disabled=false; saveMsg.style.color="var(--bad)"; saveMsg.textContent=(lang==="en"?"Could not reset.":"Yenilenemedi."); return; }
             p.password=pw;
+            logAdminAction("reset_candidate_password", p.username, p.name||"");
             /* Önce yeniden çiz, SONRA mesajı yaz — aksi halde renderResults() #crewSaveMsg'i
                baştan oluşturduğu için mesaj anında silinip hiç görünmezdi (bkz. yukarıdaki not). */
             renderResults();
@@ -4415,7 +4549,7 @@ function renderAdmin(){
             var un=btn.getAttribute("data-u");
             if(!confirm(un+" kullanıcısını silmek istediğinize emin misiniz?")) return;
             sbFetch(SB_URL+"/rest/v1/admin_users?username=eq."+encodeURIComponent(un), { method:"DELETE", headers:sbAdminHeaders({"Prefer":"return=minimal"}) })
-              .then(function(){ loadAdminUsersList(); });
+              .then(function(){ logAdminAction("delete_admin_user", un, ""); loadAdminUsersList(); });
           };
         });
       });
@@ -4446,6 +4580,7 @@ function renderAdmin(){
     var done=function(ok, failText){
       auAdd.textContent=idleLabel; auAdd.disabled=false;
       if(!ok){ msg.textContent=failText; return; }
+      logAdminAction(editing?"edit_admin_user":"add_admin_user", user, (lang==="en"?"rank: ":"görev: ")+(rank||"—"));
       usersDraft={name:"",user:"",pass:"",rank:"",editing:""};
       renderAdmin();
     };
