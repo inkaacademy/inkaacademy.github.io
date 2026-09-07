@@ -780,17 +780,23 @@ function pullCloudSettings(){
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(rows){
       if(!rows || !rows.length) return;
-      var row=rows[0], changed=false;
+      var row=rows[0], changed=false, watchChanged=false;
       var wr = row.watch_required;
-      if(typeof wr==="boolean" && wr!==CFG.watchRequired){ CFG.watchRequired = wr; changed=true; }
+      if(typeof wr==="boolean" && wr!==CFG.watchRequired){ CFG.watchRequired = wr; changed=true; watchChanged=true; }
       var rm = row.role_modules;
       if(rm && typeof rm==="object"){
         rm = sanitizeRoleModules(rm);
-        if(JSON.stringify(rm)!==JSON.stringify(CFG.roleModules)){ CFG.roleModules = rm; changed=true; }
+        /* jsonb anahtar sırasını değiştirir — anahtarlar sıralanarak karşılaştırılır, yoksa her açılışta
+           sahte "değişti" üretilir. */
+        var canon=function(o){ return JSON.stringify(Object.keys(o||{}).sort().map(function(k){ return [k,(o[k]||[]).slice().sort()]; })); };
+        if(canon(rm)!==canon(CFG.roleModules)){ CFG.roleModules = rm; changed=true; }
       }
       if(changed){
         saveCfg();
-        if(typeof state!=="undefined" && state) render();
+        /* Ekranı SADECE gerçekten etkileniyorsa yeniden çiz: watchRequired yalnız sunum (deck) ekranını
+           etkiler; roleModules başlamış bir sınavı etkilemez. Aksi halde bulut cevabı geç gelince
+           soru ekranı adayın elinin altında yeniden çiziliyordu. */
+        if(watchChanged && typeof state!=="undefined" && state && state.phase==="deck") render();
       }
     }).catch(function(){});
 }
@@ -837,7 +843,17 @@ function mergedRecords(){
   var loc = loadRecords();
   var byId = {};
   (cloudCache||[]).forEach(function(r){ if(r.attemptId) byId[r.attemptId]=r; });
-  loc.forEach(function(r){ if(r.attemptId && !byId[r.attemptId]) byId[r.attemptId]=r; });
+  /* Aynı attemptId hem yerelde hem bulutta varsa "bulut varsa bulut" DEĞİL, "daha dolu olan" kazanır:
+     içe aktarılmış 18 modüllük yerel kayıt, bulutta hâlâ "kayıt oldu" duran bayat satırın arkasında
+     kaybolmasın. (Silinmiş işaretli bulut satırı yine bulut olarak kalır — silme kararı korunur.) */
+  loc.forEach(function(r){
+    if(!r.attemptId) return;
+    var c=byId[r.attemptId];
+    if(!c){ byId[r.attemptId]=r; return; }
+    if(c.cloudStatus==="deleted") return;
+    var dl=recDoneCount(r), dc=recDoneCount(c);
+    if(dl>dc || (dl===dc && String(r.ts||"")>String(c.ts||""))){ r.cloudStatus=c.cloudStatus; byId[r.attemptId]=r; }
+  });
   var arr = Object.keys(byId).map(function(k){ return byId[k]; });
   arr.sort(function(a,b){ return String(b.ts||"").localeCompare(String(a.ts||"")); });
   return arr;
@@ -2336,6 +2352,22 @@ function newState(f){
    (rec.mods[]) çalışan bir state nesnesi yeniden kurar. Sadece TAMAMLANMIŞ modüllerin
    doğru/yanlış ve verilen cevapları geri gelir (buildRecord/cloudPushProgress'in kaydettiği
    kadarı) — yarım kalmış bir modülün ortasına dönmez, modül seçim ekranına düşer. */
+/* ---- Yerel mi, bulut mu? "Var olan" değil, "DAHA DOLU olan" kazanır ----
+   Bugün (07.09) öğrenilen ders: aynı attemptId için iki kopya çakıştığında hangisinin var olduğuna
+   değil, hangisinin daha ileride olduğuna bakılmalı. Aksi halde bayat bir bulut satırı ("kayıt oldu")
+   cihazdaki 18 modüllük ilerlemeyi ezebiliyor ya da tersi. */
+function stateDoneCount(s){ return s ? Object.keys(s.results||{}).length : -1; }
+function localStateFor(aid){
+  if(!aid) return null;
+  var s=readSlot(stateKeyFor(aid)); if(s && s.phase) return s;
+  var lg=readSlot(LS_STATE); return (lg && lg.attemptId===aid && lg.phase) ? lg : null;
+}
+/* Eşitlikte yerel tercih edilir (gereksiz üzerine yazma yok); bulut yalnızca KESİN daha doluysa kazanır. */
+function pickFullerState(localS, cloudS){
+  if(!localS) return cloudS||null;
+  if(!cloudS) return localS;
+  return stateDoneCount(cloudS) > stateDoneCount(localS) ? cloudS : localS;
+}
 function stateFromCloudRecord(row){
   try{
     var rec = (row && row.record) || {};
@@ -4111,8 +4143,12 @@ function renderLoginGate(){
         btn.textContent=L("Giriş yap","Sign in"); btn.disabled=false;
         if(!cres){ e.style.display="block"; e.textContent=L("Kullanıcı adı veya şifre hatalı.","Incorrect username or password."); return; }
         var prefill={name:cres.display_name||"", rank:cres.rank||"", vessel:cres.vessel||"", sicil:cres.sicil||"", aid:cres.attempt_id||"", signOn:cres.sign_on_date||""};
+        /* Bu sekmenin kimliği artık bu aday (kişi başına yuva, v47). Bulut bayat/boşsa ("kayıt oldu"
+           satırı → cloudState null) cihazdaki ilerleme GÖSTERİLİR, sessizce ezilmez. */
+        setActiveAid(prefill.aid);
         fetchExamStateByAid(prefill.aid, function(cloudState){
-          if(cloudState){ state=cloudState; save(); render(); window.scrollTo(0,0); }
+          var best=pickFullerState(localStateFor(prefill.aid), cloudState);
+          if(best){ state=best; save(); render(); window.scrollTo(0,0); }
           else { renderIntro(null, prefill); }
         });
       });
@@ -5191,6 +5227,10 @@ try{ var sl=localStorage.getItem(LS_LANG); if(sl==="en"||sl==="tr") lang=sl; }ca
 var qp=null; try{ qp=new URLSearchParams(location.search); }catch(e){}
 applyChrome();
 pullCloudSettings();
+/* Bekleyen ya da hiç doğrulanmamış bir bulut yazması varken, aday ekranı değiştirmese bile (ör. bitiş
+   ekranında öylece dururken) 30 sn'de bir tekrar dene — retryCloudSyncIfPending kendi 15 sn kısıtına
+   ve "doğrulandıysa hiç istek atma" kuralına zaten sahip, bu yüzden ek trafik yaratmaz. */
+setInterval(function(){ try{ if(state && SB_ON && (state.cloudPending || !state.cloudVerified)) retryCloudSyncIfPending(); }catch(e){} }, 30000);
 function bootNormal(){
   var saved=load();
   if(qp && qp.has("lang") && (qp.get("lang")==="en"||qp.get("lang")==="tr")){ lang=qp.get("lang"); applyChrome(); }
@@ -5216,10 +5256,20 @@ if(qp && qp.has("verify")){
      yoksa buluttaki kaydı (varsa) getirip oradan kaldığı yerden başlat. */
   var aidParam=qp.get("aid"), savedLocal=load();
   if(savedLocal && savedLocal.attemptId===aidParam && savedLocal.phase){
+    /* Yerel varsa hemen onunla aç (gemi interneti beklenmez) — ama arka planda buluta da bak:
+       aday başka bir cihazda daha ileri gitmişse (bulut KESİN daha doluysa) o ilerleme devralınır.
+       Kullanıcı bu arada bir soruya başlamışsa (results sayısı değiştiyse) dokunulmaz. */
     bootNormal();
+    var doneAtBoot=stateDoneCount(savedLocal);
+    fetchExamStateByAid(aidParam, function(cloudState){
+      if(!cloudState || !state || state.attemptId!==aidParam) return;
+      if(stateDoneCount(state)!==doneAtBoot) return;           /* bu arada yerelde ilerlendi */
+      if(stateDoneCount(cloudState) > stateDoneCount(state)){ state=cloudState; save(); render(); }
+    });
   } else {
     fetchExamStateByAid(aidParam, function(cloudState){
-      if(cloudState){ state=cloudState; save(); render(); window.scrollTo(0,0); }
+      var best=pickFullerState(localStateFor(aidParam), cloudState);
+      if(best){ state=best; save(); render(); window.scrollTo(0,0); }
       else { bootNormal(); }
     });
   }
