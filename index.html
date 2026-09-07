@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v53 · 2026-09-07 22:20";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v53 · 2026-09-07 22:52";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -2299,6 +2299,9 @@ function applyChrome(){
   if(lb){ lb.innerHTML=logoHTML(40); lb.classList.toggle("haslogo", !!CFG.logo); }
   document.getElementById("lgTr").classList.toggle("active", lang==="tr");
   document.getElementById("lgEn").classList.toggle("active", lang==="en");
+  var cbt=document.getElementById("candBtnTxt"), cb=document.getElementById("candBtn");
+  if(cbt) cbt.textContent = lang==="en" ? "Presentations / Exams" : "Sunumlar / Sınavlar";
+  if(cb) cb.title = lang==="en" ? "Presentations / Exams — sign in with your username and password" : "Sunumlar / Sınavlar — kullanıcı adı ve şifrenizle giriş";
 }
 function setLang(l){ if(l===lang) return; lang=l; if(state) state.lang=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} save(); applyChrome(); render(); }
 document.getElementById("lgTr").onclick=function(){ setLang("tr"); };
