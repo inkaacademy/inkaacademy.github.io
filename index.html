@@ -748,19 +748,31 @@ function sbUpdate(attemptId, patch, hdrs){
     method:"PATCH", headers: hdrs || sbHeaders({ "Prefer":"return=minimal" }), body:JSON.stringify(patch)
   }).then(function(r){ return r.ok; }).catch(function(){ return false; });
 }
-/* Ayarlar (şimdilik yalnız watchRequired) tek bir cihazın localStorage'ında kalmasın diye
-   buluta da yazılır/okunur — aksi halde yönetici Ayarlar'dan bir şeyi kapatsa bile o değişiklik
+/* Ayarlar (watchRequired ve roleModules) tek bir cihazın localStorage'ında kalmasın diye
+   buluta da yazılır/okunur — aksi halde yönetici Ayarlar'dan bir şeyi değiştirse bile o değişiklik
    SADECE değişikliği yapan tarayıcıda geçerli olur, önceden gönderilmiş kişisel linkleri açan
-   adayların cihazlarına hiç ulaşmaz (her cihaz kendi CFG_DEFAULT'unu kullanmaya devam eder). */
+   adayların cihazlarına hiç ulaşmaz (her cihaz kendi CFG_DEFAULT'unu kullanmaya devam eder).
+   NOT: roleModules buluttan güncellense bile, DAHA ÖNCE "Başla"ya basmış (state.modules zaten
+   sabitlenmiş) bir adayın modül listesini GERİYE DÖNÜK değiştirmez — sadece henüz başlamamış
+   yeni girişleri etkiler. Bu bilerek böyle: yarı tamamlanmış bir sınavın modül dizisini canlı
+   değiştirmek, o adayın zaten verdiği cevapları/işaretlediği sonuçları modül index'leri kayarak
+   bozma riski taşır. */
 function pullCloudSettings(){
   if(!SB_ON) return;
-  sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required&id=eq.1",{ headers:sbHeaders() })
+  sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules&id=eq.1",{ headers:sbHeaders() })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(rows){
       if(!rows || !rows.length) return;
-      var wr = rows[0].watch_required;
-      if(typeof wr==="boolean" && wr!==CFG.watchRequired){
-        CFG.watchRequired = wr; saveCfg();
+      var row=rows[0], changed=false;
+      var wr = row.watch_required;
+      if(typeof wr==="boolean" && wr!==CFG.watchRequired){ CFG.watchRequired = wr; changed=true; }
+      var rm = row.role_modules;
+      if(rm && typeof rm==="object"){
+        rm = sanitizeRoleModules(rm);
+        if(JSON.stringify(rm)!==JSON.stringify(CFG.roleModules)){ CFG.roleModules = rm; changed=true; }
+      }
+      if(changed){
+        saveCfg();
         if(typeof state!=="undefined" && state) render();
       }
     }).catch(function(){});
@@ -769,6 +781,12 @@ function pushCloudWatchRequired(v){
   if(!SB_ON) return;
   sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,watch_required:!!v}) }).catch(function(){});
   sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({watch_required:!!v}) }).catch(function(){});
+}
+function pushCloudRoleModules(rm){
+  if(!SB_ON) return;
+  var body=JSON.stringify({role_modules:rm||{}});
+  sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,role_modules:rm||{}}) }).catch(function(){});
+  sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:body }).catch(function(){});
 }
 function cloudRowToRec(row){
   var rec = (row.record && typeof row.record==="object") ? JSON.parse(JSON.stringify(row.record)) : {};
@@ -1459,6 +1477,16 @@ var CFG_DEFAULT = {
     for(var i=0;i<vc.length;i++) if(arr.indexOf(vc[i])<0) arr.push(vc[i]);
   }
 })();
+function sanitizeRoleModules(input){
+  var src=(input && typeof input==="object") ? input : {};
+  var rm={};
+  for(var r in src){
+    if(ROLES.indexOf(r)<0) continue;
+    var arr=(src[r]||[]).filter(function(x){return ALL_CODES.indexOf(x)>=0;});
+    if(arr.length) rm[r]=arr;
+  }
+  return rm;
+}
 function loadCfg(){
   var c={}; try{ c=JSON.parse(localStorage.getItem(LS_CFG))||{}; }catch(e){}
   var out={}; for(var k in CFG_DEFAULT) out[k]=CFG_DEFAULT[k];
@@ -1470,14 +1498,7 @@ function loadCfg(){
   out.validYears=Math.max(1,Math.min(10,+out.validYears||2));
   if(!Array.isArray(out.vessels) || !out.vessels.length) out.vessels=CFG_DEFAULT.vessels.slice();
   out.vessels=out.vessels.map(function(x){return String(x).trim();}).filter(Boolean);
-  if(!out.roleModules || typeof out.roleModules!=="object") out.roleModules={};
-  var rm={};
-  for(var r in out.roleModules){
-    if(ROLES.indexOf(r)<0) continue;
-    var arr=(out.roleModules[r]||[]).filter(function(x){return ALL_CODES.indexOf(x)>=0;});
-    if(arr.length) rm[r]=arr;
-  }
-  out.roleModules=rm;
+  out.roleModules=sanitizeRoleModules(out.roleModules);
   return out;
 }
 /* modules a given role should actually sit, intersected with the global enabled list */
@@ -3512,6 +3533,7 @@ function renderSettings(){
     if(!chosen.length || chosen.length>=CFG.modules.length){ delete CFG.roleModules[role]; }
     else CFG.roleModules[role]=ALL_CODES.filter(function(c){return chosen.indexOf(c)>=0;});
     saveCfg();
+    pushCloudRoleModules(CFG.roleModules);
     var asg=CFG.roleModules[role];
     document.getElementById("rmMsg").textContent = asg? t.setRoleSaved(role, asg.length) : t.setRoleClearedMsg(role);
     for(var i=0;i<rmSel.options.length;i++){
@@ -3520,7 +3542,7 @@ function renderSettings(){
     }
   };
   document.getElementById("rmClear").onclick=function(){
-    delete CFG.roleModules[rmSel.value]; saveCfg(); fillRm();
+    delete CFG.roleModules[rmSel.value]; saveCfg(); pushCloudRoleModules(CFG.roleModules); fillRm();
     document.getElementById("rmMsg").textContent=t.setRoleClearedMsg(rmSel.value);
     for(var i=0;i<rmSel.options.length;i++){ var o=rmSel.options[i]; o.text=o.value+((CFG.roleModules[o.value]&&CFG.roleModules[o.value].length)?" •":""); }
   };
