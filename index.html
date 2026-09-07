@@ -59,6 +59,7 @@
   .langtoggle button{background:transparent;color:#fff;border:0;padding:7px 12px;font-weight:600;font-size:.8rem;cursor:pointer;letter-spacing:.5px;font-family:var(--font-sans)}
   .langtoggle button.active{background:var(--gold);color:var(--navy)}
   .iconbtn{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 10px;font-size:.95rem;cursor:pointer;line-height:1}
+  .sync-badge{display:none;align-items:center;gap:5px;font-size:.72rem;font-weight:700;padding:5px 10px;border-radius:99px;white-space:nowrap;border:1px solid rgba(255,255,255,.4)}
   .menuwrap{position:relative}
   /* position:fixed (JS ile konumlandırılır) — header.topbar'ın kendi arkaplan efekti için
      kullandığı overflow:hidden, absolute konumlu bir açılır kutuyu görünmez şekilde keserdi. */
@@ -471,6 +472,7 @@
       <p id="topSub">İNKA Akademi · Filo ve Kara Personeli Değerlendirme Sınavı</p>
     </div>
     <div class="tools">
+      <span class="sync-badge" id="cloudSyncBadge"></span>
       <button class="iconbtn" id="adminBtn" title="Yönetici Paneli / Admin">👤 <span id="adminBtnTxt">Yönetici</span></button>
       <div class="langtoggle" role="group" aria-label="Language">
         <button data-lang="tr" id="lgTr">TR</button>
@@ -904,7 +906,7 @@ function cloudIdRow(){
 function cloudPushStart(){
   if(!SB_ON || !state) return;
   var r=cloudIdRow(); r.status="registered"; r.pass_mark=CFG.passMark; r.module_count=state.modules.length;
-  sbInsert(r).then(function(ok){ if(state){ if(!ok) state.cloudPending=true; save(); } });
+  sbInsert(r).then(function(ok){ if(state){ if(!ok) state.cloudPending=true; save(); } updateSyncBadge(); });
 }
 function cloudPushProgress(){
   if(!SB_ON || !state) return;
@@ -913,8 +915,8 @@ function cloudPushProgress(){
     sbSave(cloudIdRow(), {
       status:"in_progress", rank:rec.rank, vessel:rec.vessel, seamans_book_no:rec.sicil,
       pass_mark:rec.passMark, module_count:rec.moduleCount, passed_count:rec.passedCount, record:rec
-    }).then(function(ok){ if(state){ state.cloudPending=!ok; save(); } });
-  }catch(e){ if(state){ state.cloudPending=true; save(); } }
+    }).then(function(ok){ if(state){ state.cloudPending=!ok; save(); } updateSyncBadge(); });
+  }catch(e){ if(state){ state.cloudPending=true; save(); } updateSyncBadge(); }
 }
 function cloudPushDone(){
   if(!SB_ON || !state || state.cloudDone) return;
@@ -927,8 +929,21 @@ function cloudPushDone(){
       duration_ms:rec.durationMs, finished_at:rec.finishedAt, cert_no:rec.certNo, record:rec
     }).then(function(ok){
       if(state){ if(ok){ state.cloudDone=true; state.cloudPending=false; } else state.cloudPending=true; save(); }
+      updateSyncBadge();
     });
-  }catch(e){ if(state){ state.cloudPending=true; save(); } }
+  }catch(e){ if(state){ state.cloudPending=true; save(); } updateSyncBadge(); }
+}
+/* Sınav ekranının üstünde HER ZAMAN görünen küçük bir rozet: adayın kendi cihazının ilerlemesi
+   buluta gerçekten gidiyor mu, yoksa (kötü gemi interneti yüzünden) bekliyor mu — bunu artık
+   sadece admin değil, adayın kendisi de anlık olarak görebiliyor. "Neden bu kişinin kaydı
+   buluta hiç düşmemiş" sorusunu adaya sorup öğrenmek yerine, adayın ekranındaki bu rozet
+   doğrudan cevabı verir. */
+function updateSyncBadge(){
+  var el=document.getElementById("cloudSyncBadge"); if(!el) return;
+  if(!state || !SB_ON){ el.style.display="none"; return; }
+  el.style.display="inline-flex";
+  if(state.cloudPending){ el.textContent="⚠ "+(lang==="en"?"Not synced — will retry":"Buluta gitmedi — tekrar denenecek"); el.style.color="#ffe082"; el.style.borderColor="#ffe082"; }
+  else { el.textContent="☁ "+(lang==="en"?"Synced":"Buluta kaydedildi"); el.style.color="#b9f6ca"; el.style.borderColor="#b9f6ca"; }
 }
 /* Bağlantı kesintisi (ör. gemi interneti) yüzünden başarısız olan bir bulut yazması, cihazda
    state.cloudPending=true olarak işaretli kalır — kişinin kendi ilerlemesi (localStorage)
@@ -4425,15 +4440,23 @@ function renderAdmin(){
         renderFleetCerts(v, recs); window.scrollTo(0,0);
       }; });
     }
+    /* "Yenile" öncesinde sadece candidate_users (kim kayıtlı) yenileniyordu — asıl sınav
+       ilerlemesini (liveRecs/cloudCache) HİÇ tazelemiyordu, bu yüzden bu panelde "Yenile"ye
+       basmak, adayın gerçek durumu (Başlamadı/Devam/Geçti) değişmiş olsa bile hiçbir şeyi
+       güncellemiyordu. Şimdi cloudFails sıfırlanıp refreshCloud() de birlikte çağrılıyor ve
+       ardından TÜM panel (renderAdmin) yeniden çiziliyor — böylece Filo tablosu da güncel
+       sınav kayıtlarını kullanıyor. */
     function load(){
       var rb=document.getElementById("aFleetRefresh"); if(rb){ rb.textContent="…"; rb.disabled=true; }
-      sbFetch(SB_URL+"/rest/v1/candidate_users?select=username,display_name,rank,vessel,attempt_id&order=vessel.asc,display_name.asc", { headers:sbAdminHeaders() })
-        .then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(rows){
-          if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; }
-          if(!rows){ wrap.innerHTML='<div class="note" style="color:var(--bad)">'+(lang==="en"?"Could not load — candidate_users table may not exist yet.":"Yüklenemedi — candidate_users tablosu henüz kurulmamış olabilir.")+'</div>'; return; }
-          fleetData=rows; render();
-        }).catch(function(){ if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; } wrap.innerHTML='<div class="note" style="color:var(--bad)">Bağlantı hatası.</div>'; });
+      var pCand=sbFetch(SB_URL+"/rest/v1/candidate_users?select=username,display_name,rank,vessel,attempt_id&order=vessel.asc,display_name.asc", { headers:sbAdminHeaders() })
+        .then(function(r){ return r.ok ? r.json() : null; });
+      var pCloud=new Promise(function(res){ cloudFails=0; refreshCloud(res); });
+      Promise.all([pCand,pCloud]).then(function(results){
+        var rows=results[0];
+        if(!rows){ if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; } wrap.innerHTML='<div class="note" style="color:var(--bad)">'+(lang==="en"?"Could not load — candidate_users table may not exist yet.":"Yüklenemedi — candidate_users tablosu henüz kurulmamış olabilir.")+'</div>'; return; }
+        fleetData=rows;
+        renderAdmin();
+      }).catch(function(){ if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; } wrap.innerHTML='<div class="note" style="color:var(--bad)">Bağlantı hatası.</div>'; });
     }
     document.getElementById("aFleet").onclick=function(){
       fleetBoxOpen=!fleetBoxOpen; box.style.display=fleetBoxOpen?"block":"none";
@@ -5002,6 +5025,7 @@ function renderRecordFromRec(rec){
 function render(){
   stopTimer();
   retryCloudSyncIfPending();
+  updateSyncBadge();
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
   var mw=document.getElementById("mainWrap"); if(mw) mw.classList.remove("admin-wide");
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
