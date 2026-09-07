@@ -220,7 +220,7 @@
   .ci-verify-txt{text-align:center;overflow-wrap:anywhere}
   .ci-verify code{font-family:var(--font-mono);font-size:.58rem;background:rgba(255,255,255,.5);border:1px solid #c3ccd8;border-radius:5px;padding:4px 7px;display:inline-block;margin-top:3px;color:#22385a}
   .ci-qr{flex:0 0 auto;text-align:center}
-  .ci-qr-box{width:96px;height:96px;background:#fff;border:1px solid #c3ccd8;border-radius:4px;padding:4px;box-sizing:border-box}
+  .ci-qr-box{width:120px;height:120px;background:#fff;border:1px solid #c3ccd8;border-radius:4px;padding:7px;box-sizing:border-box}
   .ci-qr-box canvas,.ci-qr-box img{display:block;width:100%;height:100%}
   .ci-qr-cap{font-size:.52rem;color:#4a5b78;margin-top:2px;white-space:nowrap}
   @media(max-width:640px){ .ci-verify{flex-direction:column;gap:6px} }
@@ -452,7 +452,7 @@
     .cert-inka .ci-sign .t{font-size:.64rem}
     .cert-inka .ci-verify{margin-top:11px;font-size:.6rem;gap:12px}
     .cert-inka .ci-verify code{font-size:.6rem;padding:4px 7px}
-    .cert-inka .ci-qr-box{width:26mm;height:26mm;padding:1.2mm}
+    .cert-inka .ci-qr-box{width:32mm;height:32mm;padding:2mm}
     .cert-inka .ci-qr-cap{font-size:.48rem}
     .cert-inka .ci-corners .ci-cn{transform:scale(.8);transform-origin:top left}
     .cert-inka .ci-cn.tr{transform:scale(.8);transform-origin:top right}
@@ -2014,7 +2014,10 @@ function fitCertsToPage(){
   document.querySelectorAll(".cert-inka").forEach(function(cert){
     var z=cert.querySelector(".ci-z"); if(!z) return;
     void cert.offsetHeight;
-    var avail=cert.clientHeight, need=z.scrollHeight;
+    /* %98 hedeflenir (tam %100 değil) — tarayıcılar arası piksel yuvarlama farkları
+       yüzünden "tam sığdı" hesaplanan bir ölçeğin gerçekte 1-2px taşıp ikinci bir
+       sayfaya sıçramasını önlemek için küçük bir güvenlik payı. */
+    var avail=cert.clientHeight*0.98, need=z.scrollHeight;
     if(avail>0 && need>avail){
       var scale=avail/need;
       z.style.transformOrigin="top center";
@@ -2052,7 +2055,7 @@ function standaloneDoc(bodyHtml, title, landscape, marginmm){
         'document.querySelectorAll(".ci-qr[data-qr]").forEach(function(box){'+
           'if(box.getAttribute("data-done")) return;'+
           'var target=box.querySelector(".ci-qr-box")||box;'+
-          'try{ new QRCode(target, {text:box.getAttribute("data-qr"), width:220, height:220, correctLevel:QRCode.CorrectLevel.M}); }catch(e){}'+
+          'try{ new QRCode(target, {text:box.getAttribute("data-qr"), width:280, height:280, correctLevel:QRCode.CorrectLevel.L}); }catch(e){}'+
           'box.setAttribute("data-done","1");'+
         '});'+
       '}'+
@@ -2060,7 +2063,7 @@ function standaloneDoc(bodyHtml, title, landscape, marginmm){
         'document.querySelectorAll(".cert-inka .ci-z").forEach(function(z){z.style.transform="";z.style.width="";});'+
         'document.querySelectorAll(".cert-inka").forEach(function(cert){'+
           'var z=cert.querySelector(".ci-z"); if(!z) return; void cert.offsetHeight;'+
-          'var avail=cert.clientHeight, need=z.scrollHeight;'+
+          'var avail=cert.clientHeight*0.98, need=z.scrollHeight;'+
           'if(avail>0 && need>avail){ var scale=avail/need; z.style.transformOrigin="top center"; '+
             'z.style.width=(100/scale)+"%"; z.style.marginLeft="auto"; z.style.marginRight="auto"; z.style.transform="scale("+scale+")"; }'+
         '});'+
@@ -3082,7 +3085,7 @@ function renderPendingQRCodes(){
   document.querySelectorAll(".ci-qr[data-qr]").forEach(function(box){
     if(box.getAttribute("data-done")) return;
     var target=box.querySelector(".ci-qr-box")||box;
-    try{ new QRCode(target, {text:box.getAttribute("data-qr"), width:220, height:220, correctLevel:QRCode.CorrectLevel.M}); }catch(e){}
+    try{ new QRCode(target, {text:box.getAttribute("data-qr"), width:280, height:280, correctLevel:QRCode.CorrectLevel.L}); }catch(e){}
     box.setAttribute("data-done","1");
   });
 }
