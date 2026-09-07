@@ -753,6 +753,9 @@ function sbUpdate(attemptId, patch, hdrs){
   if(!SB_ON || !attemptId) return Promise.resolve(false);
   var h = hdrs || sbHeaders({});
   h["Prefer"] = "return=minimal, count=exact";
+  /* RLS: UPDATE'in WHERE'i satırı okuduğu için SELECT görünürlüğü gerekir; aday anahtarına
+     yalnızca KENDİ satırını gösteren politika bu başlığa bakar (bkz. supabase-16). */
+  h["X-Attempt-Id"] = String(attemptId);
   return sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?attempt_id=eq."+encodeURIComponent(attemptId),{
     method:"PATCH", headers: h, body:JSON.stringify(patch)
   }).then(function(r){
