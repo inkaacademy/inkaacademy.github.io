@@ -527,6 +527,9 @@ var usersDraft = { name:"", user:"", pass:"", rank:"", editing:"" };
 /* "🚢 Kayıtlı Gemi Listeleri" kutusu da aynı nedenle renderAdmin() dışında tutulur. */
 var savedCrewsOpen = false;
 var savedVesselsList = null;
+/* Gemi panosu + zor sorular kutuları (aynı nedenle renderAdmin() dışında). */
+var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "";
+var hardBoxOpen = false;
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
 var SB_URL   = "https://hoauaumaooxgtmjxxelq.supabase.co";
@@ -3494,6 +3497,21 @@ function renderModChart(liveRecs){
    so far is a pass; Kaldı as soon as any finished module is a fail) — don't make
    them wait for every assigned module to be done. Only "Kayıt oldu"/"Devam" remain
    for candidates who haven't finished a single module yet. */
+/* Sertifika geçerlilik takibi: en az bir modül geçilmişse sertifika vardır; bitiş (veya kayıt)
+   tarihine CFG.validYears eklenir. daysLeft<0 = süresi dolmuş. */
+function certExpiryInfo(r){
+  if(!r || !(r.passedCount>0)) return null;
+  var iss=new Date(r.finishedAt || r.ts || Date.now());
+  var val=new Date(iss.getTime()); val.setFullYear(val.getFullYear()+CFG.validYears);
+  return { val:val, daysLeft:Math.ceil((val.getTime()-Date.now())/86400000) };
+}
+function expSoon(r){ var e=certExpiryInfo(r); return !!(e && e.daysLeft<=60); }
+function expBadge(r){
+  var e=certExpiryInfo(r); if(!e || e.daysLeft>60) return "";
+  var txt = e.daysLeft<0 ? (lang==="en"?"expired":"süresi doldu") : (lang==="en"?(e.daysLeft+"d left"):(e.daysLeft+" gün"));
+  var col = e.daysLeft<0 ? "var(--bad)" : "var(--warn)";
+  return ' <span title="'+(lang==="en"?"Certificate validity":"Sertifika geçerliliği")+': '+ymd(e.val)+'" style="font-size:.66rem;font-weight:700;padding:1px 6px;border-radius:99px;background:'+(e.daysLeft<0?"var(--bad-bg)":"var(--warn-bg)")+';color:'+col+';white-space:nowrap">⏳ '+txt+'</span>';
+}
 function recStatus(r){
   if(r.cloudStatus==="deleted") return "del";
   var attempted=(r.mods||[]).filter(function(m){ return m.end; });
@@ -3566,6 +3584,14 @@ function parseCrewWorkbook(wb){
 /* "Crew List → Linkler" sonuçları için tek dosyalık, şık, gemiye/personele gönderilebilir
    bir HTML rapor üretir (CSV'nin "karmaşık" bulunması üzerine eklendi — aynı görünüm daha
    önce ayrı ayrı script ile üretilen örnek dosyayla aynı tasarımdadır). */
+/* WhatsApp / e-posta ile kişiye giriş bilgilerini gönderme linki (mesaj hazır gelir). */
+function crewShareHref(kind, p, vessel, link, base){
+  var msg = (lang==="en"
+    ? "INKA Academy Assessment Exam\nUsername: "+p.username+"\nPassword: "+p.password+"\nSign in: "+base+"\nYour personal link: "+link
+    : "İNKA Akademi Değerlendirme Sınavı\nKullanıcı adı: "+p.username+"\nŞifre: "+p.password+"\nGiriş: "+base+"\nKişiye özel linkiniz: "+link);
+  if(kind==="wa") return "https://wa.me/?text="+encodeURIComponent(msg);
+  return "mailto:?subject="+encodeURIComponent((lang==="en"?"Assessment Exam login":"Değerlendirme Sınavı girişi")+(vessel?" — "+vessel:""))+"&body="+encodeURIComponent(msg);
+}
 function buildCrewHtmlReport(vessel, people, base){
   var rows=people.map(function(p,i){
     var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId);
@@ -3714,7 +3740,8 @@ function renderAdmin(){
     if(adminFilter==="all"||adminFilter==="del") return true;
     var s=recStatus(r);
     return (adminFilter==="reg"&&s==="reg") || (adminFilter==="prog"&&s==="prog")
-        || (adminFilter==="pass"&&s==="pass") || (adminFilter==="fail"&&s==="fail");
+        || (adminFilter==="pass"&&s==="pass") || (adminFilter==="fail"&&s==="fail")
+        || (adminFilter==="exp"&&expSoon(r));
   });
 
   var idOf=function(r){ return (r.sicil||r.name||"?").toLowerCase(); };
@@ -3748,7 +3775,7 @@ function renderAdmin(){
     var i=recs.indexOf(r);
     return '<tr data-i="'+i+'" data-aid="'+esc(r.attemptId||"")+'" tabindex="0">'+
       '<td class="cbcell"><input type="checkbox" class="rowcb" data-aid="'+esc(r.attemptId||"")+'"'+(adminSel[r.attemptId]?" checked":"")+'></td>'+
-      '<td>'+admFmtDate(r.ts)+'</td>'+
+      '<td>'+admFmtDate(r.ts)+expBadge(r)+'</td>'+
       '<td>'+esc(r.name||"—")+'</td>'+
       '<td>'+esc(r.sicil||"—")+'</td>'+
       '<td>'+esc([r.rank,r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
@@ -3771,6 +3798,8 @@ function renderAdmin(){
       ' <button class="btn sm ghost" id="aRefresh" style="margin-left:8px">🔄 '+t.cloudRefresh+'</button></div>';
 
   var chips=[["all",t.admFilterAll],["reg",t.admFilterReg],["prog",t.admFilterProg],["pass",t.admFilterPass],["fail",t.admFilterFail]];
+  var expCount=liveRecs.filter(expSoon).length;
+  if(expCount) chips.push(["exp","⏳ "+(lang==="en"?"Expiring":"Süresi dolacak")+" ("+expCount+")"]);
   if(delCount) chips.push(["del","🗑 "+t.admFilterDel+" ("+delCount+")"]);
 
   var selBar = selCount
@@ -3804,6 +3833,8 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aImport">📥 '+t.admImport+'</button>'+
       '<button class="btn sm ghost" id="aCrew">👥 '+t.admCrewBtn+'</button>'+
       '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
+      '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
+      '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
       '<button class="btn sm ghost" id="aKeys">🔑 '+t.admKeysBtn+'</button>'+
       (ADMIN_UI ? '<button class="btn sm ghost" id="aUsers">🔐 Kullanıcılar</button>' : '')+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
@@ -3836,6 +3867,19 @@ function renderAdmin(){
       '</div>'+
       '<div id="crewMsg" style="font-size:.82rem;color:var(--muted)"></div>'+
       '<div id="crewResultsWrap"></div>'+
+    '</div>'+
+    '<div id="aFleetBox" style="display:'+(fleetBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Per-vessel picture: who finished, who is in progress, who never started — built from the saved crew accounts joined with exam records."
+        : "Gemi bazlı tablo: kim bitirdi, kim devam ediyor, kim hiç başlamadı — kayıtlı gemi hesapları ile sınav kayıtlarının birleşimi.")+'</div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aFleetRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button></div>'+
+      '<div id="aFleetWrap" style="margin-top:8px"></div>'+
+    '</div>'+
+    '<div id="aHardBox" style="display:'+(hardBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Questions candidates get wrong most often (blank counts as wrong, at least 3 attempts). A very high rate usually means either the question is unclear or the training does not cover that point."
+        : "Adayların en çok yanlış yaptığı sorular (boş = yanlış, en az 3 deneme). Çok yüksek oran genelde ya sorunun belirsiz olduğunu ya da eğitimin o noktayı anlatmadığını gösterir.")+'</div>'+
+      '<div id="aHardWrap"></div>'+
     '</div>'+
     '<div id="aSavedCrewsBox" style="display:'+(savedCrewsOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+
@@ -3983,6 +4027,113 @@ function renderAdmin(){
     savedCrewsOpen=!savedCrewsOpen;
     document.getElementById("aSavedCrewsBox").style.display=savedCrewsOpen?"block":"none";
   };
+  /* ---- 📊 Gemi Panosu ---- */
+  (function(){
+    var box=document.getElementById("aFleetBox"), wrap=document.getElementById("aFleetWrap");
+    if(!box) return;
+    var byAid={}; liveRecs.forEach(function(r){ if(r.attemptId) byAid[r.attemptId]=r; });
+    function personStatus(rec){
+      if(!rec) return "none";
+      var mods=rec.mods||[], total=rec.moduleCount||mods.length||0;
+      var finished=mods.filter(function(m){ return m.end; }).length;
+      var started=mods.some(function(m){ return m.start; });
+      if(total && finished>=total) return mods.some(function(m){ return !m.passed; }) ? "donefail" : "donepass";
+      return (finished>0 || started) ? "prog" : "none";
+    }
+    var LBL={ donepass:[lang==="en"?"Completed · passed":"Tamamladı · geçti","var(--ok)","var(--ok-bg)"],
+              donefail:[lang==="en"?"Completed · has fails":"Tamamladı · kalan var","var(--bad)","var(--bad-bg)"],
+              prog:[lang==="en"?"In progress":"Devam ediyor","var(--sky)","var(--sky-bg)"],
+              none:[lang==="en"?"Not started":"Başlamadı","var(--muted)","var(--bg)"] };
+    function pill(st){ var l=LBL[st]; return '<span style="font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:99px;background:'+l[2]+';color:'+l[1]+';white-space:nowrap">'+l[0]+'</span>'; }
+    function render(){
+      if(!fleetData){ wrap.innerHTML=""; return; }
+      if(!fleetData.length){ wrap.innerHTML='<div class="note">'+(lang==="en"?"No saved crew accounts yet.":"Henüz kayıtlı gemi hesabı yok.")+'</div>'; return; }
+      var groups={}; fleetData.forEach(function(u){ var v=(u.vessel||"—").trim()||"—"; (groups[v]=groups[v]||[]).push(u); });
+      var vessels=Object.keys(groups).sort();
+      wrap.innerHTML=vessels.map(function(v){
+        var people=groups[v].map(function(u){ var rec=byAid[u.attempt_id]; return {u:u, rec:rec, st:personStatus(rec)}; });
+        var c={donepass:0,donefail:0,prog:0,none:0}; people.forEach(function(x){ c[x.st]++; });
+        var open=fleetOpenVessel===v;
+        var head='<div class="fleet-head" data-v="'+esc(v)+'" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;margin-top:8px">'+
+          '<b style="flex:1">'+(open?"▾":"▸")+' 🚢 '+esc(v)+' <span style="font-weight:500;color:var(--muted)">· '+people.length+' '+(lang==="en"?"people":"kişi")+'</span></b>'+
+          '<span style="font-size:.78rem;color:var(--ok)">✅ '+c.donepass+'</span><span style="font-size:.78rem;color:var(--bad)">❌ '+c.donefail+'</span>'+
+          '<span style="font-size:.78rem;color:var(--sky)">⏳ '+c.prog+'</span><span style="font-size:.78rem;color:var(--muted)">○ '+c.none+'</span></div>';
+        if(!open) return head;
+        var order={donefail:0,prog:1,none:2,donepass:3};
+        people.sort(function(a,b){ return (order[a.st]-order[b.st]) || String(a.u.display_name).localeCompare(String(b.u.display_name)); });
+        var rows=people.map(function(x){
+          var rec=x.rec, mods=rec?(rec.mods||[]):[], fin=mods.filter(function(m){return m.end;}).length, tot=rec?(rec.moduleCount||mods.length):"—";
+          var last=rec?(rec.finishedAt||rec.ts):null;
+          return '<tr><td>'+esc(x.u.display_name||"")+'</td><td>'+esc(x.u.rank||"—")+'</td><td>'+pill(x.st)+'</td>'+
+            '<td class="sc">'+(rec?(fin+" / "+tot):"—")+'</td><td>'+(last?admFmtDate(last):"—")+'</td>'+
+            '<td>'+(rec?'<button class="btn sm ghost fleet-open" data-aid="'+esc(rec.attemptId)+'">'+(lang==="en"?"Open":"Aç")+'</button>':'')+'</td></tr>';
+        }).join("");
+        var notStarted=people.filter(function(x){ return x.st==="none"; }).map(function(x){ return x.u.display_name; });
+        return head+'<div style="overflow-x:auto;margin-top:6px"><table class="rec crew-table"><thead><tr><th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.thStatus+'</th><th>'+t.admThModules+'</th><th>'+(lang==="en"?"Last activity":"Son işlem")+'</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+          (notStarted.length?'<div class="btnrow" style="margin-top:6px"><button class="btn sm ghost fleet-copy-ns" data-v="'+esc(v)+'">📋 '+(lang==="en"?"Copy not-started names":"Başlamayanları kopyala")+' ('+notStarted.length+')</button></div>':'');
+      }).join("");
+      wrap.querySelectorAll(".fleet-head").forEach(function(h){ h.onclick=function(){ var v=h.getAttribute("data-v"); fleetOpenVessel = (fleetOpenVessel===v) ? "" : v; render(); }; });
+      wrap.querySelectorAll(".fleet-open").forEach(function(b){ b.onclick=function(){ var rec=byAid[b.getAttribute("data-aid")]; if(rec){ renderAdminDetail(rec); window.scrollTo(0,0); } }; });
+      wrap.querySelectorAll(".fleet-copy-ns").forEach(function(b){ b.onclick=function(){
+        var v=b.getAttribute("data-v"); var names=(groups[v]||[]).filter(function(u){ return personStatus(byAid[u.attempt_id])==="none"; }).map(function(u){ return u.display_name; });
+        copyText(names.join("\n"), b);
+      }; });
+    }
+    function load(){
+      var rb=document.getElementById("aFleetRefresh"); if(rb){ rb.textContent="…"; rb.disabled=true; }
+      sbFetch(SB_URL+"/rest/v1/candidate_users?select=username,display_name,rank,vessel,attempt_id&order=vessel.asc,display_name.asc", { headers:sbAdminHeaders() })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(rows){
+          if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; }
+          if(!rows){ wrap.innerHTML='<div class="note" style="color:var(--bad)">'+(lang==="en"?"Could not load — candidate_users table may not exist yet.":"Yüklenemedi — candidate_users tablosu henüz kurulmamış olabilir.")+'</div>'; return; }
+          fleetData=rows; render();
+        }).catch(function(){ if(rb){ rb.textContent="🔄 "+(lang==="en"?"Refresh":"Yenile"); rb.disabled=false; } wrap.innerHTML='<div class="note" style="color:var(--bad)">Bağlantı hatası.</div>'; });
+    }
+    document.getElementById("aFleet").onclick=function(){
+      fleetBoxOpen=!fleetBoxOpen; box.style.display=fleetBoxOpen?"block":"none";
+      if(fleetBoxOpen && !fleetData) load();
+    };
+    document.getElementById("aFleetRefresh").onclick=load;
+    render();
+  })();
+  /* ---- 📉 Zor Sorular ---- */
+  (function(){
+    var box=document.getElementById("aHardBox"), wrap=document.getElementById("aHardWrap");
+    if(!box) return;
+    function compute(){
+      var bc=byCode(lang), stats={};
+      liveRecs.forEach(function(r){
+        (r.mods||[]).forEach(function(m){
+          if(!m.end || !m.given) return;
+          var mod=bc[m.code]; if(!mod) return;
+          mod.questions.forEach(function(q){
+            var k=m.code+"|"+q.n, st=stats[k]||(stats[k]={code:m.code, n:q.n, text:q.text, answer:q.answer, att:0, wrong:0});
+            st.att++; if(m.given[q.n]!==q.answer) st.wrong++;
+          });
+        });
+      });
+      return Object.keys(stats).map(function(k){ return stats[k]; }).filter(function(s){ return s.att>=3; })
+        .sort(function(a,b){ return (b.wrong/b.att)-(a.wrong/a.att) || b.att-a.att; }).slice(0,25);
+    }
+    function render(){
+      var list=compute();
+      if(!list.length){ wrap.innerHTML='<div class="note">'+(lang==="en"?"Not enough data yet (a question needs at least 3 attempts).":"Henüz yeterli veri yok (bir sorunun en az 3 kez cevaplanması gerekir).")+'</div>'; return; }
+      var bc=byCode(lang);
+      wrap.innerHTML='<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr><th>'+t.thModule+'</th><th>'+(lang==="en"?"Q#":"Soru")+'</th><th>'+(lang==="en"?"Wrong %":"Yanlış %")+'</th><th>'+(lang==="en"?"Attempts":"Deneme")+'</th><th>'+(lang==="en"?"Question":"Soru metni")+'</th></tr></thead><tbody>'+
+        list.map(function(s){
+          var pct=Math.round(100*s.wrong/s.att), col=pct>=70?"var(--bad)":(pct>=50?"var(--warn)":"var(--ink)");
+          var mname=(bc[s.code]||{}).name||"";
+          return '<tr><td style="white-space:nowrap">'+modIcon(s.code)+' '+esc(s.code)+' <span style="color:var(--muted);font-size:.76rem">'+esc(mname)+'</span></td><td class="sc">'+s.n+'</td>'+
+            '<td class="sc" style="font-weight:700;color:'+col+'">%'+pct+'</td><td class="sc">'+s.att+'</td>'+
+            '<td style="font-size:.8rem;max-width:520px">'+esc(s.text||"")+' <span style="color:var(--ok);font-family:var(--font-mono);font-size:.74rem">('+(lang==="en"?"correct":"doğru")+': '+String(s.answer||"?").toUpperCase()+')</span></td></tr>';
+        }).join("")+'</tbody></table></div>';
+    }
+    document.getElementById("aHard").onclick=function(){
+      hardBoxOpen=!hardBoxOpen; box.style.display=hardBoxOpen?"block":"none";
+      if(hardBoxOpen) render();
+    };
+    if(hardBoxOpen) render();
+  })();
   (function(){
     var listBtn=document.getElementById("aSavedList"), wrap=document.getElementById("savedVesselsWrap");
     if(!listBtn) return;
@@ -4058,7 +4209,10 @@ function renderAdmin(){
           '<td style="font-family:var(--font-mono);font-size:.78rem;white-space:nowrap">'+esc(p.password||"—")+'</td>'+
           '<td style="max-width:220px"><input type="text" class="crewLinkInp" readonly value="'+esc(link)+'" '+
             'style="width:100%;font-family:var(--font-mono);font-size:.7rem;border:1px solid var(--line);border-radius:6px;padding:4px 6px" onclick="this.select()"></td>'+
-          '<td><button class="btn sm ghost crewCopyBtn" data-i="'+i+'">'+t.crewCopyOne+'</button></td>'+
+          '<td style="white-space:nowrap"><button class="btn sm ghost crewCopyBtn" data-i="'+i+'">'+t.crewCopyOne+'</button> '+
+            '<a class="btn sm ghost crewWa" data-i="'+i+'" target="_blank" rel="noopener" title="WhatsApp" href="'+esc(crewShareHref("wa", p, vessel, link, base))+'">📱</a> '+
+            '<a class="btn sm ghost crewMail" data-i="'+i+'" title="E-posta" href="'+esc(crewShareHref("mail", p, vessel, link, base))+'">✉️</a> '+
+            '<button class="btn sm ghost crewReset" data-i="'+i+'" title="'+(lang==="en"?"New password":"Şifreyi yenile")+'">🔄</button></td>'+
         '</tr>';
       }).join("");
       wrapEl.innerHTML=
@@ -4107,6 +4261,29 @@ function renderAdmin(){
         btn.onclick=function(){
           var p=people[+btn.getAttribute("data-i")];
           copyText(crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId), btn);
+        };
+      });
+      /* Şifreyi yenile: kişinin buluttaki hesabına yeni şifre yazar (hash + düz metin); Excel'i
+         tekrar yüklemeye gerek kalmaz. Hesap henüz kaydedilmemişse önce "Hesapları oluştur" gerekir. */
+      wrapEl.querySelectorAll(".crewReset").forEach(function(btn){
+        btn.onclick=function(){
+          var p=people[+btn.getAttribute("data-i")], saveMsg=document.getElementById("crewSaveMsg");
+          if(!isAdminAuthed()){ saveMsg.style.color="var(--bad)"; saveMsg.textContent="Önce giriş yapmalısınız."; return; }
+          if(!p.savedToCloud){ saveMsg.style.color="var(--bad)"; saveMsg.textContent=(lang==="en"?"Create the accounts first (🚀), then reset.":"Önce 🚀 Hesapları oluştur, sonra şifre yenileyin."); return; }
+          if(!confirm((lang==="en"?"Generate a new password for ":"Yeni şifre üretilsin mi: ")+p.name+"?")) return;
+          var pw=genCandidatePassword(); btn.textContent="…"; btn.disabled=true;
+          sbFetch(SB_URL+"/rest/v1/candidate_users?username=eq."+encodeURIComponent(p.username), {
+            method:"PATCH", headers:sbAdminHeaders({"Prefer":"return=minimal"}),
+            body:JSON.stringify({ password_hash:candidatePasswordHash(p.username, pw), password_plain:pw })
+          }).then(function(r){
+            if(!r.ok){ btn.textContent="🔄"; btn.disabled=false; saveMsg.style.color="var(--bad)"; saveMsg.textContent=(lang==="en"?"Could not reset.":"Yenilenemedi."); return; }
+            p.password=pw;
+            /* Önce yeniden çiz, SONRA mesajı yaz — aksi halde renderResults() #crewSaveMsg'i
+               baştan oluşturduğu için mesaj anında silinip hiç görünmezdi (bkz. yukarıdaki not). */
+            renderResults();
+            var m3=document.getElementById("crewSaveMsg");
+            if(m3){ m3.style.color="var(--ok)"; m3.textContent=p.name+": "+(lang==="en"?"new password ":"yeni şifre ")+pw; }
+          }).catch(function(){ btn.textContent="🔄"; btn.disabled=false; saveMsg.style.color="var(--bad)"; saveMsg.textContent="Bağlantı hatası."; });
         };
       });
       var copyAllBtn=document.getElementById("crewCopyAll");
