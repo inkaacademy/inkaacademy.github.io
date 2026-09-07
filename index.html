@@ -859,7 +859,7 @@ function cloudIdRow(){
 function cloudPushStart(){
   if(!SB_ON || !state) return;
   var r=cloudIdRow(); r.status="registered"; r.pass_mark=CFG.passMark; r.module_count=state.modules.length;
-  sbInsert(r);
+  sbInsert(r).then(function(ok){ if(state){ if(!ok) state.cloudPending=true; save(); } });
 }
 function cloudPushProgress(){
   if(!SB_ON || !state) return;
@@ -868,8 +868,8 @@ function cloudPushProgress(){
     sbSave(cloudIdRow(), {
       status:"in_progress", rank:rec.rank, vessel:rec.vessel, seamans_book_no:rec.sicil,
       pass_mark:rec.passMark, module_count:rec.moduleCount, passed_count:rec.passedCount, record:rec
-    });
-  }catch(e){}
+    }).then(function(ok){ if(state){ state.cloudPending=!ok; save(); } });
+  }catch(e){ if(state){ state.cloudPending=true; save(); } }
 }
 function cloudPushDone(){
   if(!SB_ON || !state || state.cloudDone) return;
@@ -880,9 +880,24 @@ function cloudPushDone(){
       module_count:rec.moduleCount, passed_count:rec.passedCount, all_pass:rec.allPass,
       total:rec.total, pass_mark:rec.passMark, focus_total:rec.focusTotal, auto_any:rec.autoAny,
       duration_ms:rec.durationMs, finished_at:rec.finishedAt, cert_no:rec.certNo, record:rec
+    }).then(function(ok){
+      if(state){ if(ok){ state.cloudDone=true; state.cloudPending=false; } else state.cloudPending=true; save(); }
     });
-    state.cloudDone=true; save();
-  }catch(e){}
+  }catch(e){ if(state){ state.cloudPending=true; save(); } }
+}
+/* Bağlantı kesintisi (ör. gemi interneti) yüzünden başarısız olan bir bulut yazması, cihazda
+   state.cloudPending=true olarak işaretli kalır — kişinin kendi ilerlemesi (localStorage)
+   ASLA kaybolmaz, sadece admin panelinin gördüğü buluta o an yansımamıştır. Bağlantı geri
+   geldiğinde, adayın yapacağı bir sonraki ekran geçişinde (render() her zaman çağrılır)
+   otomatik olarak sessizce tekrar dener — aday hiçbir şey yapmak zorunda değildir. 15 sn'lik
+   kısıtlama, bağlantı hâlâ yoksa her ekran geçişinde gereksiz istek atmayı önler. */
+var lastCloudRetryAt = 0;
+function retryCloudSyncIfPending(){
+  if(!state || !state.cloudPending || !SB_ON) return;
+  var now=Date.now(); if(now-lastCloudRetryAt<15000) return;
+  lastCloudRetryAt=now;
+  if(state.phase==="summary") cloudPushDone();
+  else cloudPushProgress();
 }
 var ALL_CODES = DATA.tr.map(function(m){return m.code;});
 
@@ -1301,7 +1316,7 @@ function modColor(code){ return (MODICON[code]||{}).c || "var(--navy)"; }
 var CFG_DEFAULT = {
   company:"INKA ACADEMY",
   passMark:14, timerOn:false, timerMin:20,
-  allowReview:false, validYears:5,
+  allowReview:false, validYears:5, watchRequired:true,
   freeOrder:true,   /* aday modülleri istediği sırayla yapabilir (1'den başlamak zorunda değil) */
   invigilator:"Capt. Ali SEYHUN", signTitle:"TRAINING SPECIALIST", docRef:"TRN-EXAM-01 Rev.0",
   logo:"",
@@ -1558,6 +1573,8 @@ var STR = {
   setModules:"Sınava girecek modüller",
   setDecks:"Modül öncesi eğitim sunumu zorunlu",
   setDeckMin:"Sunumda en az bekleme (saniye)",
+  setWatchRequired:"Video/sunumun tamamını izleme zorunlu",
+  setWatchRequiredHint:"Kapatılırsa adaylar video/sunum bitmeden 'Sınava geç'e basabilir — yukarıdaki bekleme süresi/gerçek video uzunluğu uygulanmaz.",
   setDecksHint:"Sunum dili = uygulama dili. Her satır: «kod | pdf yolu» (decks/01.pdf veya decks/tr/01.pdf ya da tam adres). Bir dilde dosya yoksa diğer dile düşülür.",
   setLog:"Sonuç kayıtları (bu cihaz)",
   setLogEmpty:"Henüz kayıt yok.",
@@ -1776,6 +1793,8 @@ var STR = {
   setModules:"Modules included in the exam",
   setDecks:"Require a training deck before each module",
   setDeckMin:"Minimum dwell on deck (seconds)",
+  setWatchRequired:"Must watch the full video/presentation",
+  setWatchRequiredHint:"When off, candidates can proceed to the exam before the video/presentation finishes — the dwell time/real video length above is not enforced.",
   setDecksHint:"Deck language = app language. Each line: «code | pdf path» (decks/01.pdf or decks/tr/01.pdf or absolute). If a file is missing in one language it falls back to the other.",
   setLog:"Result log (this device)",
   setLogEmpty:"No records yet.",
@@ -2455,7 +2474,9 @@ function renderPick(){
 function renderDeck(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), m=MODULES()[mi], isVid=isVideoModule(m.code);
-  var minS = ADMIN_UI ? 0 : (isVid ? (VIDEO_DURATION_SEC[m.code]||CFG.deckMinSec||0) : Math.max(0, +CFG.deckMinSec||0));
+  /* watchRequired kapatılırsa (Ayarlar'dan) adaylar için de bekleme 0 olur — bu, ADMIN_UI'nin
+     zaten her zaman 0 olan durumuyla aynı davranışı normal sitede de isteğe bağlı açar. */
+  var minS = (ADMIN_UI || CFG.watchRequired===false) ? 0 : (isVid ? (VIDEO_DURATION_SEC[m.code]||CFG.deckMinSec||0) : Math.max(0, +CFG.deckMinSec||0));
   /* .wrap'in 920px sınırını aşıp TÜM kartı (başlık, sunum, onay, buton) aynı geniş ölçüde
      hizalar — sadece sunum penceresi değil. (viewport tabanlı breakout, ekrana göre) */
   app.innerHTML=
@@ -3418,6 +3439,8 @@ function renderSettings(){
       '<div class="modchecks">'+modChecks+'</div></div>'+
     '<div style="padding:12px 0;border-bottom:1px solid var(--line)">'+
       '<div class="setrow"><label for="sDecksOn">'+t.setDecks+'</label><label class="switch"><input type="checkbox" id="sDecksOn"'+(CFG.decksOn?" checked":"")+'><span></span></label></div>'+
+      '<div class="setrow"><label for="sWatchReq">'+t.setWatchRequired+'</label><label class="switch"><input type="checkbox" id="sWatchReq"'+(CFG.watchRequired!==false?" checked":"")+'><span></span></label></div>'+
+      '<label class="hint" style="display:block;margin:-4px 0 4px">'+t.setWatchRequiredHint+'</label>'+
       '<div class="setrow"><label>'+t.setDeckMin+'</label><input type="number" id="sDeckMin" min="0" max="600" value="'+(+CFG.deckMinSec||0)+'"></div>'+
       '<label class="hint" style="display:block;margin:4px 0">'+t.setDecksHint+'</label>'+
       '<label class="fld" style="margin-top:6px">EN — English</label>'+
@@ -3519,6 +3542,7 @@ function renderSettings(){
     if(pendingLogo!==null) CFG.logo=pendingLogo;
     (function(){
       var d1=document.getElementById("sDecksOn"); if(d1) CFG.decksOn=d1.checked;
+      var dw=document.getElementById("sWatchReq"); if(dw) CFG.watchRequired=dw.checked;
       var d2=document.getElementById("sDeckMin"); if(d2) CFG.deckMinSec=Math.max(0,Math.min(600,+d2.value||0));
       function parseDeckTa(id){
         var ta=document.getElementById(id); if(!ta) return null;
@@ -4920,6 +4944,7 @@ function renderRecordFromRec(rec){
 /* ---------------- ROUTER ---------------- */
 function render(){
   stopTimer();
+  retryCloudSyncIfPending();
   if(adminPoll){ clearInterval(adminPoll); adminPoll=null; }
   var mw=document.getElementById("mainWrap"); if(mw) mw.classList.remove("admin-wide");
   var fn=document.getElementById("footNote"); if(fn) fn.style.display="";
