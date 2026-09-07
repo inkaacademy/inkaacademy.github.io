@@ -280,7 +280,9 @@
   .rec-gen{margin-top:20px;font-size:.72rem;color:var(--muted);font-family:var(--font-mono)}
 
   .verify-panel{max-width:560px;margin:40px auto}
-  .verify-panel .vbadge{font-size:1.1rem;font-weight:700;padding:10px 18px;border-radius:99px;display:inline-block}
+  .verify-panel .vbadge{font-size:1.15rem;font-weight:700;padding:12px 22px;border-radius:99px;display:inline-block}
+  .verify-panel .setrow{padding:7px 0;border-bottom:1px dashed var(--line)}
+  .verify-panel .setrow:last-child{border-bottom:0}
 
   .admin-stats{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 14px}
   .admin-stats .st-card{flex:1;min-width:130px;border:1px solid var(--line);border-top:3px solid var(--sc,var(--navy));
@@ -374,6 +376,11 @@
   .editgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin:12px 0}
   @media(max-width:520px){.editgrid{grid-template-columns:1fr}}
   .filterchips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .admin-tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin:14px 0 16px;flex-wrap:wrap}
+  .admin-tab-btn{background:transparent;border:0;padding:9px 16px;font-size:.86rem;font-weight:600;
+    color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:var(--font-sans)}
+  .admin-tab-btn.on{color:var(--heading);border-bottom-color:var(--gold)}
+  .admin-tab-btn:hover{color:var(--heading)}
   .chipbtn{border:1px solid var(--line);background:#fbfcfe;border-radius:99px;padding:5px 12px;font-size:.8rem;font-weight:600;cursor:pointer;color:var(--muted);font-family:inherit}
   .chipbtn.on{background:var(--navy);color:#fff;border-color:var(--heading)}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--heading);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
@@ -531,6 +538,9 @@ var savedVesselsList = null;
 var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "";
 var hardBoxOpen = false;
 var auditBoxOpen = false;
+/* Yönetici panelindeki sekme (Kayıtlar/Filo/Yönetim) — diğer kutu durumları gibi
+   renderAdmin() dışında tutulur ki 20 sn'lik bulut yenilemesi geçilen sekmeyi değiştirmesin. */
+var adminTab = "records";
 
 /* ---------------- Supabase (bulut kayıt) ---------------- */
 var SB_URL   = "https://hoauaumaooxgtmjxxelq.supabase.co";
@@ -3289,6 +3299,7 @@ function renderVerify(code){
   certEl.style.display="none"; recEl.style.display="none";
   var t=T();
   var rec = code? parseVerifyCode(code) : null;
+  var accent="var(--gold)"; /* kod henüz girilmemiş nötr durum */
   var inner;
   if(!code){
     inner='<label class="fld" for="vIn">'+t.vPasteLbl+'</label>'+
@@ -3296,7 +3307,8 @@ function renderVerify(code){
       '<div class="btnrow"><button class="btn" id="vGo">'+t.vCheck+'</button>'+
       '<a class="btn ghost" href="?">'+t.vBack+'</a></div>';
   } else if(!rec){
-    inner='<span class="vbadge fail">'+t.vInvalid+'</span>'+
+    accent="var(--bad)";
+    inner='<span class="vbadge fail">❌ '+t.vInvalid+'</span>'+
       '<p class="lead" style="margin-top:14px">'+t.vInvalidText+'</p>'+
       '<div class="btnrow"><a class="btn ghost" href="?verify=">'+t.vCheck+'</a> <a class="btn" href="?">'+t.vBack+'</a></div>';
   } else {
@@ -3310,8 +3322,14 @@ function renderVerify(code){
       row(t.vCert, rec.certNo)+
       row(t.vIssue, fmtYMD(rec.issYMD))+
       row(t.vValidUntil, fmtYMD(rec.validYMD));
-    var badge='<span class="vbadge '+(expired?'fail':'pass')+'">'+
-      (rec.t==="m"?t.vValidModule:t.vValid)+(expired?' '+t.vExpired:'')+'</span>';
+    accent = expired ? "var(--bad)" : "var(--ok)";
+    var badge='<span class="vbadge '+(expired?'fail':'pass')+'">'+(expired?'❌ ':'✅ ')+
+      (rec.t==="m"?t.vValidModule:t.vValid)+(expired?' '+t.vExpired:'')+'</span>'+
+      '<div class="note" style="margin-top:12px;text-align:left">'+
+        (lang==="en"
+          ? ("This page is "+(rec.company||CFG.company)+"'s official verification system for this certificate.")
+          : ("Bu sayfa, "+(rec.company||CFG.company)+"'nın bu sertifika için resmi doğrulama sistemidir."))+
+      '</div>';
     if(rec.t==="m"){
       inner=badge+'<div style="margin-top:16px">'+common+
         row(t.vModule, rec.mcode+" — "+rec.mname)+
@@ -3327,7 +3345,7 @@ function renderVerify(code){
       '<div class="btnrow"><a class="btn ghost" href="?verify=">'+t.vCheck+'</a> <a class="btn" href="?">'+t.vBack+'</a></div>';
     }
   }
-  app.innerHTML='<div class="card verify-panel"><h2>'+t.vTitle+'</h2>'+inner+'</div>';
+  app.innerHTML='<div class="card verify-panel" style="border-top:6px solid '+accent+'"><h2>'+t.vTitle+'</h2>'+inner+'</div>';
   var go=document.getElementById("vGo");
   if(go) go.onclick=function(){ var v=document.getElementById("vIn").value.trim(); location.search="?verify="+encodeURIComponent(v); };
 }
@@ -3674,6 +3692,79 @@ function crewShareHref(kind, p, vessel, link, base){
   if(kind==="wa") return "https://wa.me/?text="+encodeURIComponent(msg);
   return "mailto:?subject="+encodeURIComponent((lang==="en"?"Assessment Exam login":"Değerlendirme Sınavı girişi")+(vessel?" — "+vessel:""))+"&body="+encodeURIComponent(msg);
 }
+/* Denetimde elden ele verilebilecek, girişe ihtiyaç duymayan tek dosyalık özet:
+   gemi bazlı durum (bitirdi/devam/başlamadı) + süresi dolacak/dolmuş sertifikalar +
+   genel toplamlar. candidateRows = candidate_users satırları (vessel/attempt_id ile);
+   liveRecs = renderAdmin() içinde zaten hesaplanmış, silinmemiş tüm sınav kayıtları. */
+function buildAuditSummaryReport(candidateRows, liveRecs){
+  var byAid={}; (liveRecs||[]).forEach(function(r){ if(r.attemptId) byAid[r.attemptId]=r; });
+  function personStatus(rec){
+    if(!rec) return "none";
+    var mods=rec.mods||[], total=rec.moduleCount||mods.length||0;
+    var finished=mods.filter(function(m){ return m.end; }).length;
+    var started=mods.some(function(m){ return m.start; });
+    if(total && finished>=total) return mods.some(function(m){ return !m.passed; }) ? "donefail" : "donepass";
+    return (finished>0 || started) ? "prog" : "none";
+  }
+  var LBL={ donepass:"Tamamladı · geçti", donefail:"Tamamladı · kalan var", prog:"Devam ediyor", none:"Başlamadı" };
+  var groups={};
+  (candidateRows||[]).forEach(function(u){ var v=(u.vessel||"—").trim()||"—"; (groups[v]=groups[v]||[]).push(u); });
+  var vesselRows=Object.keys(groups).sort().map(function(v){
+    var people=groups[v].map(function(u){ return personStatus(byAid[u.attempt_id]); });
+    var c={donepass:0,donefail:0,prog:0,none:0}; people.forEach(function(st){ c[st]++; });
+    return '<tr><td><b>🚢 '+esc(v)+'</b></td><td class="c">'+people.length+'</td>'+
+      '<td class="c" style="color:#1c7a3c;font-weight:700">'+c.donepass+'</td>'+
+      '<td class="c" style="color:#a92a25;font-weight:700">'+c.donefail+'</td>'+
+      '<td class="c" style="color:#2f6fb0;font-weight:700">'+c.prog+'</td>'+
+      '<td class="c" style="color:#5b6b7c;font-weight:700">'+c.none+'</td></tr>';
+  }).join("");
+  var totalPeople=(candidateRows||[]).length;
+  var totalDone=(liveRecs||[]).filter(function(r){ return r.passedCount>0; }).length;
+  var totalAllPass=(liveRecs||[]).filter(function(r){ return r.allPass; }).length;
+  var expList=(liveRecs||[]).map(function(r){ var e=certExpiryInfo(r); return e?{r:r,e:e}:null; })
+    .filter(function(x){ return x && x.e.daysLeft<=60; }).sort(function(a,b){ return a.e.daysLeft-b.e.daysLeft; });
+  var expRows=expList.map(function(x){
+    var status = x.e.daysLeft<0 ? '<span style="color:#a92a25;font-weight:700">Süresi doldu</span>'
+      : '<span style="color:#8a6400;font-weight:700">'+x.e.daysLeft+' gün kaldı</span>';
+    return '<tr><td>'+esc(x.r.name||"—")+'</td><td>'+esc([x.r.rank,x.r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
+      '<td class="c">'+ymd(x.e.val).replace(/(\d{4})(\d{2})(\d{2})/,"$3.$2.$1")+'</td><td class="c">'+status+'</td></tr>';
+  }).join("");
+  return '<!doctype html><html lang="tr"><head><meta charset="utf-8">'+
+    '<title>Denetim Özeti — '+esc(CFG.company||"İNKA Akademi")+'</title>'+
+    '<style>'+
+    'body{font-family:Segoe UI,Arial,sans-serif;background:#f6f7fb;color:#1c2733;margin:0;padding:28px}'+
+    'h1{font-size:1.4rem;margin:0 0 2px;color:#0b2a49}'+
+    'h2{font-size:1.05rem;margin:26px 0 8px;color:#153a5e;border-bottom:2px solid #b6862c;padding-bottom:4px}'+
+    '.sub{color:#5b6b7c;font-size:.88rem;margin-bottom:6px}'+
+    '.stats{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}'+
+    '.stat{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:12px 18px;min-width:130px}'+
+    '.stat b{display:block;font-size:1.5rem;color:#0b2a49}'+
+    '.stat span{font-size:.78rem;color:#5b6b7c}'+
+    'table{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}'+
+    'th,td{padding:8px 10px;border-bottom:1px solid #e7ebf0;font-size:.82rem;text-align:left;vertical-align:top}'+
+    'th{background:#1f4e79;color:#fff;font-weight:600}'+
+    'td.c{text-align:center;white-space:nowrap}'+
+    'tr:nth-child(even){background:#fafbfd}'+
+    '.note{margin-top:10px;font-size:.78rem;color:#5b6b7c}'+
+    '@media print{ body{padding:0} }'+
+    '</style></head><body>'+
+    '<h1>📊 Denetim Özeti — '+esc(CFG.company||"İNKA Akademi")+'</h1>'+
+    '<div class="sub">Oluşturulma: '+new Date().toLocaleString("tr-TR")+'</div>'+
+    '<div class="stats">'+
+      '<div class="stat"><b>'+totalPeople+'</b><span>Toplam aday hesabı</span></div>'+
+      '<div class="stat"><b>'+totalDone+'</b><span>En az 1 modül tamamlayan</span></div>'+
+      '<div class="stat"><b>'+totalAllPass+'</b><span>Tüm modülleri geçen</span></div>'+
+      '<div class="stat"><b>'+expList.length+'</b><span>Süresi dolacak/dolmuş sertifika</span></div>'+
+    '</div>'+
+    '<h2>🚢 Gemi Bazlı Durum</h2>'+
+    (vesselRows ? '<table><thead><tr><th>Gemi</th><th class="c">Kişi</th><th class="c">✅ Geçti</th><th class="c">❌ Kaldı</th><th class="c">⏳ Devam</th><th class="c">○ Başlamadı</th></tr></thead><tbody>'+vesselRows+'</tbody></table>'
+      : '<div class="note">Henüz kayıtlı gemi/aday hesabı yok.</div>')+
+    '<h2>⏳ Süresi Dolacak / Dolmuş Sertifikalar (60 gün içinde)</h2>'+
+    (expRows ? '<table><thead><tr><th>Aday</th><th>Görev / Gemi</th><th class="c">Geçerlilik Bitiş</th><th class="c">Durum</th></tr></thead><tbody>'+expRows+'</tbody></table>'
+      : '<div class="note">Yakın zamanda süresi dolacak sertifika yok.</div>')+
+    '<div class="note">Bu rapor İNKA Akademi Değerlendirme Sınavı sisteminden tek seferlik olarak üretilmiştir; canlı veriyle otomatik güncellenmez.</div>'+
+    '</body></html>';
+}
 function buildCrewHtmlReport(vessel, people, base){
   var rows=people.map(function(p,i){
     var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId);
@@ -3904,6 +3995,16 @@ function renderAdmin(){
       '<div class="st-card" style="--sc:var(--bad)"><div class="st-ico">❌</div><b>'+Object.keys(failU).length+'</b><span>'+t.admStFailed+'</span></div>'+
     '</div>'+
     renderModChart(liveRecs)+
+    '<div class="btnrow" style="margin-top:0">'+
+      '<button class="btn sm ghost" id="aBack2">'+t.backApp+'</button>'+
+      '<button class="btn sm ghost" id="aSbKey">'+(ADMIN_UI?'☁ Bulut anahtarı':'🔑 Çıkış yap')+'</button>'+
+    '</div>'+
+    '<div class="admin-tabs">'+
+      '<button class="admin-tab-btn'+(adminTab==="records"?" on":"")+'" data-tab="records">📋 '+(lang==="en"?"Records":"Kayıtlar")+'</button>'+
+      '<button class="admin-tab-btn'+(adminTab==="fleet"?" on":"")+'" data-tab="fleet">🚢 '+(lang==="en"?"Fleet":"Filo")+'</button>'+
+      '<button class="admin-tab-btn'+(adminTab==="manage"?" on":"")+'" data-tab="manage">⚙️ '+(lang==="en"?"Management":"Yönetim")+'</button>'+
+    '</div>'+
+    '<div class="admin-tabpane" data-tab="records" style="display:'+(adminTab==="records"?"block":"none")+'">'+
     '<input type="text" id="aSearch" class="searchbar" placeholder="'+esc(t.admSearch)+'" value="'+esc(adminSearch)+'">'+
     '<div class="filterchips">'+
       chips.map(function(f){ return '<button class="chipbtn'+(adminFilter===f[0]?" on":"")+'" data-f="'+f[0]+'">'+f[1]+'</button>'; }).join("")+
@@ -3913,34 +4014,35 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aCsvCopy">📋 '+t.admCsvCopy+'</button>'+
       '<button class="btn sm ghost" id="aCsvDl">⬇️ '+t.admCsvDl+'</button>'+
       '<button class="btn sm ghost" id="aImport">📥 '+t.admImport+'</button>'+
-      '<button class="btn sm ghost" id="aCrew">👥 '+t.admCrewBtn+'</button>'+
-      '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
-      '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
-      '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
-      '<button class="btn sm ghost" id="aAudit">📜 '+(lang==="en"?"Activity log":"İşlem Geçmişi")+'</button>'+
-      '<button class="btn sm ghost" id="aKeys">🔑 '+t.admKeysBtn+'</button>'+
-      (ADMIN_UI ? '<button class="btn sm ghost" id="aUsers">🔐 Kullanıcılar</button>' : '')+
       '<button class="btn sm ghost" id="aDemo">'+t.admDemo+'</button>'+
-      '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
-      '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
-      '<button class="btn sm ghost" id="aSbKey">'+(ADMIN_UI?'☁ Bulut anahtarı':'🔑 Çıkış yap')+'</button>'+
       '<button class="btn sm ghost" id="aClear" style="border-color:var(--bad);color:var(--bad)">🗑 '+t.admClear+'</button>'+
-      '<button class="btn sm ghost" id="aBack2">'+t.backApp+'</button>'+
-    '</div>'+
-    '<div id="aShareBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
-      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:6px">'+t.admShareLead+'</div>'+
-      '<input type="text" id="aShareUrl" class="searchbar" readonly value="'+esc(CFG.shareUrl||"")+'" style="margin-bottom:8px;font-family:var(--font-mono)">'+
-      '<div class="btnrow" style="margin-top:0">'+
-        '<button class="btn sm" id="aShareCopy">📋 '+t.admShareCopy+'</button>'+
-        '<a class="btn sm ghost" id="aShareWa" target="_blank" rel="noopener">WhatsApp</a>'+
-        '<a class="btn sm ghost" id="aShareMail">'+t.admShareMail+'</a>'+
-        '<span id="aShareMsg" style="font-size:.8rem;color:var(--ok);align-self:center"></span>'+
-      '</div>'+
     '</div>'+
     '<div id="aImportBox" style="display:none;margin-top:10px">'+
       '<textarea class="logbox" id="aImportTa" placeholder="GSMR1.…" style="height:90px"></textarea>'+
       '<div class="btnrow" style="margin-top:6px"><button class="btn sm" id="aImportGo">'+t.admImportGo+'</button>'+
       '<span id="aImportMsg" style="font-size:.8rem;color:var(--muted);align-self:center"></span></div>'+
+    '</div>'+
+    '<textarea class="logbox" id="aCsvBox" readonly style="display:none;height:120px;margin-top:10px"></textarea>'+
+    (cloudBusy && !recs.length
+      ? '<div class="note" style="margin-top:12px"><span class="spin"></span> '+t.cloudFetching+'</div>'
+      : recs.length
+        ? '<div style="overflow-x:auto;margin-top:12px"><table class="rec adm-table"><thead><tr>'+
+          '<th class="cbcell"><input type="checkbox" id="aSelAll"></th>'+
+          '<th>'+t.admThDate+'</th><th>'+t.admThCand+'</th><th>'+t.recFields.sicil+'</th><th>'+t.admThRankVessel+'</th>'+
+          '<th>'+t.admThModules+'</th><th>'+t.admThPassed+'</th><th>'+t.thCorrect+'</th><th>'+t.thStatus+'</th><th>'+t.recTh.auto+'</th>'+
+          '<th>'+t.recTh.focus+'</th><th>'+t.recTh.dur+'</th><th>'+t.certNoLbl+'</th></tr></thead>'+
+          '<tbody>'+rows+'</tbody></table>'+
+          (shown.length? '' : '<div class="note" style="margin-top:8px">—</div>')+
+          '</div>'
+        : '<div class="note" style="margin-top:12px">'+t.admEmpty+'</div>')+
+   '</div>'+
+    '</div>'+
+    '<div class="admin-tabpane" data-tab="fleet" style="display:'+(adminTab==="fleet"?"block":"none")+'">'+
+    '<div class="btnrow" style="margin-top:0">'+
+      '<button class="btn sm ghost" id="aCrew">👥 '+t.admCrewBtn+'</button>'+
+      '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
+      '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
+      '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
     '</div>'+
     '<div id="aCrewBox" style="display:'+(crewState.open?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+t.crewLead+'</div>'+
@@ -3951,26 +4053,6 @@ function renderAdmin(){
       '<div id="crewMsg" style="font-size:.82rem;color:var(--muted)"></div>'+
       '<div id="crewResultsWrap"></div>'+
     '</div>'+
-    '<div id="aFleetBox" style="display:'+(fleetBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
-      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
-        ? "Per-vessel picture: who finished, who is in progress, who never started — built from the saved crew accounts joined with exam records."
-        : "Gemi bazlı tablo: kim bitirdi, kim devam ediyor, kim hiç başlamadı — kayıtlı gemi hesapları ile sınav kayıtlarının birleşimi.")+'</div>'+
-      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aFleetRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button></div>'+
-      '<div id="aFleetWrap" style="margin-top:8px"></div>'+
-    '</div>'+
-    '<div id="aHardBox" style="display:'+(hardBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
-      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
-        ? "Questions candidates get wrong most often (blank counts as wrong, at least 3 attempts). A very high rate usually means either the question is unclear or the training does not cover that point."
-        : "Adayların en çok yanlış yaptığı sorular (boş = yanlış, en az 3 deneme). Çok yüksek oran genelde ya sorunun belirsiz olduğunu ya da eğitimin o noktayı anlatmadığını gösterir.")+'</div>'+
-      '<div id="aHardWrap"></div>'+
-    '</div>'+
-    '<div id="aAuditBox" style="display:'+(auditBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
-      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
-        ? "Who did what and when — record deletes/restores/edits, admin account changes, candidate password resets. Nobody, including admins, can edit or clear this from the panel."
-        : "Kim ne zaman ne yaptı — kayıt silme/geri getirme/düzenleme, yönetici hesabı değişiklikleri, aday şifre yenilemeleri. Paneldeki hiç kimse (yöneticiler dahil) bunu değiştiremez/silemez.")+'</div>'+
-      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aAuditRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button></div>'+
-      '<div id="aAuditWrap" style="margin-top:8px"></div>'+
-    '</div>'+
     '<div id="aSavedCrewsBox" style="display:'+(savedCrewsOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+
         (lang==="en"
@@ -3979,6 +4061,30 @@ function renderAdmin(){
       '</div>'+
       '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aSavedList">🔄 '+(lang==="en"?"List vessels":"Gemileri listele")+'</button></div>'+
       '<div id="savedVesselsWrap" style="margin-top:8px"></div>'+
+    '</div>'+
+    '<div id="aFleetBox" style="display:'+(fleetBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Per-vessel picture: who finished, who is in progress, who never started — built from the saved crew accounts joined with exam records."
+        : "Gemi bazlı tablo: kim bitirdi, kim devam ediyor, kim hiç başlamadı — kayıtlı gemi hesapları ile sınav kayıtlarının birleşimi.")+'</div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aFleetRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button>'+
+      '<button class="btn sm gold" id="aAuditSummary">📊 '+(lang==="en"?"Audit summary (HTML)":"Denetim Özeti (HTML)")+'</button></div>'+
+      '<div id="aFleetWrap" style="margin-top:8px"></div>'+
+    '</div>'+
+    '<div id="aHardBox" style="display:'+(hardBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Questions candidates get wrong most often (blank counts as wrong, at least 3 attempts). A very high rate usually means either the question is unclear or the training does not cover that point."
+        : "Adayların en çok yanlış yaptığı sorular (boş = yanlış, en az 3 deneme). Çok yüksek oran genelde ya sorunun belirsiz olduğunu ya da eğitimin o noktayı anlatmadığını gösterir.")+'</div>'+
+      '<div id="aHardWrap"></div>'+
+    '</div>'+
+    '</div>'+
+    '<div class="admin-tabpane" data-tab="manage" style="display:'+(adminTab==="manage"?"block":"none")+'">'+
+    '<div class="btnrow" style="margin-top:0">'+
+      '<button class="btn sm ghost" id="aKeys">🔑 '+t.admKeysBtn+'</button>'+
+      (ADMIN_UI ? '<button class="btn sm ghost" id="aUsers">🔐 Kullanıcılar</button>' : '')+
+      '<button class="btn sm ghost" id="aAudit">📜 '+(lang==="en"?"Activity log":"İşlem Geçmişi")+'</button>'+
+      '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
+      '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
+      '<button class="btn sm ghost" id="aBackup">💾 '+(lang==="en"?"Full backup (JSON)":"Tam Yedek (JSON)")+'</button>'+
     '</div>'+
     '<div id="aKeysBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+t.keysLead+'</div>'+
@@ -4005,21 +4111,33 @@ function renderAdmin(){
       '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="auAdd">'+(usersDraft.editing?'💾 Kaydet':'+ Kullanıcı ekle')+'</button>'+
         (usersDraft.editing?'<button class="btn sm ghost" id="auCancel">Vazgeç</button>':'')+'</div>'+
     '</div>' : '')+
-    '<textarea class="logbox" id="aCsvBox" readonly style="display:none;height:120px;margin-top:10px"></textarea>'+
-    (cloudBusy && !recs.length
-      ? '<div class="note" style="margin-top:12px"><span class="spin"></span> '+t.cloudFetching+'</div>'
-      : recs.length
-        ? '<div style="overflow-x:auto;margin-top:12px"><table class="rec adm-table"><thead><tr>'+
-          '<th class="cbcell"><input type="checkbox" id="aSelAll"></th>'+
-          '<th>'+t.admThDate+'</th><th>'+t.admThCand+'</th><th>'+t.recFields.sicil+'</th><th>'+t.admThRankVessel+'</th>'+
-          '<th>'+t.admThModules+'</th><th>'+t.admThPassed+'</th><th>'+t.thCorrect+'</th><th>'+t.thStatus+'</th><th>'+t.recTh.auto+'</th>'+
-          '<th>'+t.recTh.focus+'</th><th>'+t.recTh.dur+'</th><th>'+t.certNoLbl+'</th></tr></thead>'+
-          '<tbody>'+rows+'</tbody></table>'+
-          (shown.length? '' : '<div class="note" style="margin-top:8px">—</div>')+
-          '</div>'
-        : '<div class="note" style="margin-top:12px">'+t.admEmpty+'</div>')+
+    '<div id="aAuditBox" style="display:'+(auditBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Who did what and when — record deletes/restores/edits, admin account changes, candidate password resets. Nobody, including admins, can edit or clear this from the panel."
+        : "Kim ne zaman ne yaptı — kayıt silme/geri getirme/düzenleme, yönetici hesabı değişiklikleri, aday şifre yenilemeleri. Paneldeki hiç kimse (yöneticiler dahil) bunu değiştiremez/silemez.")+'</div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aAuditRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button></div>'+
+      '<div id="aAuditWrap" style="margin-top:8px"></div>'+
+    '</div>'+
+    '<div id="aShareBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:6px">'+t.admShareLead+'</div>'+
+      '<input type="text" id="aShareUrl" class="searchbar" readonly value="'+esc(CFG.shareUrl||"")+'" style="margin-bottom:8px;font-family:var(--font-mono)">'+
+      '<div class="btnrow" style="margin-top:0">'+
+        '<button class="btn sm" id="aShareCopy">📋 '+t.admShareCopy+'</button>'+
+        '<a class="btn sm ghost" id="aShareWa" target="_blank" rel="noopener">WhatsApp</a>'+
+        '<a class="btn sm ghost" id="aShareMail">'+t.admShareMail+'</a>'+
+        '<span id="aShareMsg" style="font-size:.8rem;color:var(--ok);align-self:center"></span>'+
+      '</div>'+
+    '</div>'+
+    '</div>'+
    '</div>';
 
+  app.querySelectorAll(".admin-tab-btn").forEach(function(b){
+    b.onclick=function(){
+      adminTab=b.getAttribute("data-tab");
+      app.querySelectorAll(".admin-tab-btn").forEach(function(x){ x.classList.toggle("on", x===b); });
+      app.querySelectorAll(".admin-tabpane").forEach(function(pane){ pane.style.display = (pane.getAttribute("data-tab")===adminTab) ? "block" : "none"; });
+    };
+  });
   var srch=document.getElementById("aSearch");
   srch.oninput=function(){ adminSearch=srch.value; var p=srch.selectionStart; renderAdmin(); var n=document.getElementById("aSearch"); if(n){ n.focus(); try{n.setSelectionRange(p,p);}catch(e){} } };
   app.querySelectorAll(".chipbtn").forEach(function(b){ b.onclick=function(){ adminFilter=b.getAttribute("data-f"); adminSel={}; renderAdmin(); }; });
@@ -4057,6 +4175,24 @@ function renderAdmin(){
     box.value=text; box.style.display="block"; box.focus(); box.select();
   };
   document.getElementById("aSettings").onclick=function(){ renderSettings(); };
+  var aBackupBtn=document.getElementById("aBackup");
+  if(aBackupBtn) aBackupBtn.onclick=function(){
+    aBackupBtn.textContent="…"; aBackupBtn.disabled=true;
+    sbFetch(SB_URL+"/rest/v1/candidate_users?select=*", { headers:sbAdminHeaders() })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(candidateUsers){
+        var payload={
+          exportedAt:new Date().toISOString(), company:CFG.company,
+          examRecords: allRecs, candidateAccounts: candidateUsers||[]
+        };
+        download("inka_akademi_tam_yedek_"+ymd(new Date())+".json", JSON.stringify(payload,null,2), "application/json;charset=utf-8");
+        logAdminAction("full_backup_export", "", allRecs.length+" kayıt, "+(candidateUsers||[]).length+" aday hesabı");
+        aBackupBtn.textContent="💾 "+(lang==="en"?"Full backup (JSON)":"Tam Yedek (JSON)"); aBackupBtn.disabled=false;
+      }).catch(function(){
+        aBackupBtn.textContent="💾 "+(lang==="en"?"Full backup (JSON)":"Tam Yedek (JSON)"); aBackupBtn.disabled=false;
+        alert(lang==="en"?"Backup failed — connection error.":"Yedek alınamadı — bağlantı hatası.");
+      });
+  };
   (function(){
     var sBtn=document.getElementById("aShare"), box=document.getElementById("aShareBox");
     if(!sBtn||!box) return;
@@ -4192,6 +4328,18 @@ function renderAdmin(){
       if(fleetBoxOpen && !fleetData) load();
     };
     document.getElementById("aFleetRefresh").onclick=load;
+    var sumBtn=document.getElementById("aAuditSummary");
+    if(sumBtn) sumBtn.onclick=function(){
+      sumBtn.textContent="…"; sumBtn.disabled=true;
+      var go=function(rows){
+        sumBtn.textContent="📊 "+(lang==="en"?"Audit summary (HTML)":"Denetim Özeti (HTML)"); sumBtn.disabled=false;
+        var doc=buildAuditSummaryReport(rows||[], liveRecs);
+        download("denetim_ozeti_"+ymd(new Date())+".html", doc, "text/html;charset=utf-8");
+      };
+      if(fleetData){ go(fleetData); return; }
+      sbFetch(SB_URL+"/rest/v1/candidate_users?select=username,display_name,rank,vessel,attempt_id&order=vessel.asc,display_name.asc", { headers:sbAdminHeaders() })
+        .then(function(r){ return r.ok ? r.json() : []; }).then(go).catch(function(){ go([]); });
+    };
     render();
   })();
   /* ---- 📉 Zor Sorular ---- */
