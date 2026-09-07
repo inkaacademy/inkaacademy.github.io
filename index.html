@@ -946,11 +946,15 @@ function cloudPushProgress(){
     sbSave(cloudIdRow(), {
       status:"in_progress", rank:rec.rank, vessel:rec.vessel, seamans_book_no:rec.sicil,
       pass_mark:rec.passMark, module_count:rec.moduleCount, passed_count:rec.passedCount, record:rec
-    }).then(function(ok){ if(state){ state.cloudPending=!ok; save(); } updateSyncBadge(); });
+    }).then(function(ok){ if(state){ state.cloudPending=!ok; if(ok) state.cloudVerified=true; save(); } updateSyncBadge(); });
   }catch(e){ if(state){ state.cloudPending=true; save(); } updateSyncBadge(); }
 }
+/* cloudVerified: bu cihazdan buluta EN AZ BİR gerçek (satır etkileyen) yazma başarıldı mı?
+   Eski kayıtlarda cloudDone=true sahte 204'lerle konmuştu; artık cloudDone tek başına yeterli
+   değil — cloudVerified de yoksa bitiş kaydı yeniden gönderilir (izin açıldığında bitirmiş
+   adaylar da kod toplanmadan kendiliğinden panele düşer). */
 function cloudPushDone(){
-  if(!SB_ON || !state || state.cloudDone) return;
+  if(!SB_ON || !state || (state.cloudDone && state.cloudVerified)) return;
   try{
     var rec=buildRecord();
     sbSave(cloudIdRow(), {
@@ -959,7 +963,7 @@ function cloudPushDone(){
       total:rec.total, pass_mark:rec.passMark, focus_total:rec.focusTotal, auto_any:rec.autoAny,
       duration_ms:rec.durationMs, finished_at:rec.finishedAt, cert_no:rec.certNo, record:rec
     }).then(function(ok){
-      if(state){ if(ok){ state.cloudDone=true; state.cloudPending=false; } else state.cloudPending=true; save(); }
+      if(state){ if(ok){ state.cloudDone=true; state.cloudVerified=true; state.cloudPending=false; } else state.cloudPending=true; save(); }
       updateSyncBadge();
     });
   }catch(e){ if(state){ state.cloudPending=true; save(); } updateSyncBadge(); }
@@ -984,7 +988,9 @@ function updateSyncBadge(){
    kısıtlama, bağlantı hâlâ yoksa her ekran geçişinde gereksiz istek atmayı önler. */
 var lastCloudRetryAt = 0;
 function retryCloudSyncIfPending(){
-  if(!state || !state.cloudPending || !SB_ON) return;
+  if(!state || !SB_ON) return;
+  /* bekleyen bir yazma varsa VEYA bu cihazdan hiç doğrulanmış yazma olmadıysa tekrar dene */
+  if(!state.cloudPending && state.cloudVerified) return;
   var now=Date.now(); if(now-lastCloudRetryAt<15000) return;
   lastCloudRetryAt=now;
   if(state.phase==="summary") cloudPushDone();
