@@ -63,6 +63,9 @@
   .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 14px;border-radius:10px;font-size:.85rem;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.28);max-width:92vw;line-height:1.35}
   .toast.ok{background:#1c7a3c}.toast.warn{background:#a15c00}.toast.bad{background:#a92a25}
   .toast button{margin-left:10px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:7px;padding:4px 9px;cursor:pointer;font-size:.8rem}
+  /* Başlığa yeni bir aday-girişi düğmesi eklenince (🎓 Sunumlar/Sınavlar) dar ekranlarda başlık
+     taşabiliyordu — metin etiketlerini gizleyip sadece ikon+araç ipucu bırak, .tools da sarsın. */
+  @media(max-width:560px){ .tools{flex-wrap:wrap;justify-content:flex-end;row-gap:6px} #candBtnTxt,#adminBtnTxt{display:none} }
   .menuwrap{position:relative}
   /* position:fixed (JS ile konumlandırılır) — header.topbar'ın kendi arkaplan efekti için
      kullandığı overflow:hidden, absolute konumlu bir açılır kutuyu görünmez şekilde keserdi. */
@@ -476,6 +479,7 @@
     </div>
     <div class="tools">
       <span class="sync-badge" id="cloudSyncBadge"></span>
+      <button class="iconbtn" id="candBtn" title="Sunumlar / Sınavlar — kullanıcı adı ve şifrenizle giriş"><span id="candBtnIco">🎓</span> <span id="candBtnTxt">Sunumlar / Sınavlar</span></button>
       <button class="iconbtn" id="adminBtn" title="Yönetici Paneli / Admin">👤 <span id="adminBtnTxt">Yönetici</span></button>
       <div class="langtoggle" role="group" aria-label="Language">
         <button data-lang="tr" id="lgTr">TR</button>
@@ -521,7 +525,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v53 · 2026-09-07 20:50";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v53 · 2026-09-07 21:14";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -2273,6 +2277,16 @@ applyTheme();
   var ab=document.getElementById("adminBtn");
   if(!ab) return;
   ab.onclick=function(){ renderAdmin(); window.scrollTo(0,0); };
+})();
+(function(){
+  /* Gemi personeli için AYRI, açıkça etiketli giriş düğmesi. Önceden tek giriş noktası
+     "👤 Yönetici" idi — normal aday, admin olmadığı hâlde "Yönetici"ye mi basmalıyım diye
+     tereddüt ediyordu. Bu düğme AYNI ekranı (renderLoginGate) açar — form zaten önce
+     admin_login, olmazsa candidate_login dener — ama etiket doğru kitleye hitap eder.
+     Genel sitede (ADMIN_UI=false) bu ekranda service_role/kurulum metni ZATEN görünmez. */
+  var cb=document.getElementById("candBtn");
+  if(!cb) return;
+  cb.onclick=function(){ renderLoginGate(); window.scrollTo(0,0); };
 })();
 
 /* focus / visibility tracking */
