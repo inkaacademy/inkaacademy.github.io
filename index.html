@@ -521,7 +521,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v52 · 2026-09-07 20:27";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v53 · 2026-09-07 20:50";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -541,7 +541,7 @@ var usersDraft = { name:"", user:"", pass:"", rank:"", editing:"" };
 var savedCrewsOpen = false;
 var savedVesselsList = null;
 /* Gemi panosu + zor sorular kutuları (aynı nedenle renderAdmin() dışında). */
-var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "";
+var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "", healthBoxOpen = false, kitBoxOpen = false;
 var hardBoxOpen = false;
 var auditBoxOpen = false;
 /* Yönetici panelindeki sekme (Kayıtlar/Filo/Yönetim) — diğer kutu durumları gibi
@@ -781,8 +781,12 @@ function sbUpdate(attemptId, patch, hdrs){
    bozma riski taşır. */
 function pullCloudSettings(){
   if(!SB_ON) return;
-  sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules,exam_cfg&id=eq.1",{ headers:sbHeaders() })
-    .then(function(r){ return r.ok ? r.json() : null; })
+  /* Şema geriye uyumluluğu: exam_cfg sütunu henüz yoksa (supabase-17 çalıştırılmadıysa) PostgREST
+     400 döner — o zaman eski sütun listesiyle tekrar dene ki watch_required/role_modules yine gelsin. */
+  var qFull=SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules,exam_cfg&id=eq.1";
+  var qBase=SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules&id=eq.1";
+  sbFetch(qFull,{ headers:sbHeaders() })
+    .then(function(r){ if(r.ok) return r.json(); if(r.status===400) return sbFetch(qBase,{ headers:sbHeaders() }).then(function(r2){ return r2.ok ? r2.json() : null; }); return null; })
     .then(function(rows){
       if(!rows || !rows.length) return;
       var row=rows[0], changed=false, watchChanged=false;
@@ -2714,9 +2718,10 @@ function renderPick(){
       else { stKey="fail"; stTxt="❌ "+t.pickFailed; }
     } else { stKey="todo"; stTxt="⏳ "+t.pickTodo; }
     var btn='<button class="btn sm'+(r&&r.passed?" ghost":"")+'" data-mi="'+i+'">'+(r? t.pickRetry : t.pickStart)+'</button>';
+    var estMin=estimateMinutes(m.code);   /* D8 */
     var card='<div class="pickcard" style="--mc:'+col+'">'+
       '<div class="pc-top"><div class="pc-ico">'+ico+'</div>'+
-      '<div><div class="pc-code">'+t.moduleOf(m.code)+'</div><div class="pc-name">'+esc(m.name)+'</div></div></div>'+
+      '<div><div class="pc-code">'+t.moduleOf(m.code)+' <span style="font-weight:500;color:var(--muted);font-size:.72rem">· ~'+estMin+(lang==="en"?" min":" dk")+'</span></div><div class="pc-name">'+esc(m.name)+'</div></div></div>'+
       '<span class="pc-st '+stKey+'">'+stTxt+'</span>'+btn+'</div>';
     (isVideoModule(m.code)?videoCardsArr:deckCardsArr).push(card);
   });
@@ -2732,7 +2737,14 @@ function renderPick(){
       '<div><h2 style="margin-bottom:2px">'+t.pickTitle+'</h2>'+
       '<p class="lead" style="font-size:.9rem;margin:0">'+t.pickLead+'</p>'+
       '<p style="margin:.3rem 0 0;color:var(--muted);font-size:.9rem">'+t.pickProgress(passCount, mods.length)+
-        (doneCount>passCount?' · '+t.pickFailNote(doneCount-passCount):'')+'</p></div>'+
+        (doneCount>passCount?' · '+t.pickFailNote(doneCount-passCount):'')+
+        (function(){ /* D8 — kalan modüller için toplam tahmin */
+          var left=mods.filter(function(m,i){ return !(state.results[i]&&state.results[i].passed); });
+          if(!left.length) return '';
+          var tot=left.reduce(function(a,m){ return a+estimateMinutes(m.code); },0);
+          var h=Math.floor(tot/60), mm=tot%60;
+          return ' · '+(lang==="en"?"remaining ":"kalan ")+left.length+(lang==="en"?" module(s) ≈ ":" modül ≈ ")+(h?h+(lang==="en"?" h ":" sa ")+mm+(lang==="en"?" min":" dk"):tot+(lang==="en"?" min":" dk"));
+        })()+'</p></div>'+
     '</div>'+
     sections+
     '<div class="btnrow" style="margin-top:16px">'+
@@ -4057,6 +4069,87 @@ function crewShareHref(kind, p, vessel, link, base){
    gemi bazlı durum (bitirdi/devam/başlamadı) + süresi dolacak/dolmuş sertifikalar +
    genel toplamlar. candidateRows = candidate_users satırları (vessel/attempt_id ile);
    liveRecs = renderAdmin() içinde zaten hesaplanmış, silinmemiş tüm sınav kayıtları. */
+/* ---- D8: aday tarafı süre tahmini (dakika) — sunum/video süresi + 20 soru × ~40 sn ---- */
+function estimateMinutes(code){
+  var deckSec = isVideoModule(code) ? (VIDEO_DURATION_SEC[code]||0) : (CFG.decksOn ? Math.max(0,+CFG.deckMinSec||0) : 0);
+  var qSec = CFG.timerOn ? Math.min(20*40, (+CFG.timerMin||20)*60) : 20*40;
+  return Math.max(1, Math.round((deckSec + qSec)/60));
+}
+/* ---- D4: bir kişinin görevine göre ZORUNLU modüller ile bitirdikleri — "kim neyi borçlu" ---- */
+function owedForPerson(rank, rec){
+  var req = modulesForRole(rank||"");
+  var done = {}; ((rec&&rec.mods)||[]).forEach(function(m){ if(m && m.end && m.passed) done[m.code]=true; });
+  var missing = req.filter(function(c){ return !done[c]; });
+  return { required:req.length, done:req.length-missing.length, missing:missing };
+}
+/* ---- D5: panelden Eğitim Matrisi (TR/EN) — kendi kendine yeten HTML, Yazdır → PDF ---- */
+var MATRIX_RANKS = ["Master","Chf Off","2nd Off","3rd Off","4th Off","Deck Cad","Chf Eng","2nd Eng","3rd Eng","4th Eng","Eng Cad","ETO","Bosun","AB","OS","Oiler","Wiper","Fitter","Cook","Stwrd"];
+var MATRIX_RANK_LABEL = {"Chf Off":"Chief Officer","Deck Cad":"Deck Cadet","Chf Eng":"Chief Eng","Eng Cad":"Eng Cadet","Stwrd":"Steward"};
+function buildMatrixHtml(lc){
+  var en = lc==="en";
+  var bcT=byCode("tr"), bcE=byCode("en");
+  var ranks = MATRIX_RANKS.filter(function(r){ return ROLES.indexOf(r)>=0; });
+  var codes = ALL_CODES.slice();
+  var TT = en ? {t1:"GLORY SHIP MANAGEMENT — INKA ACADEMY", t2:"Vessel Personnel Training Matrix",
+                 sub:"Source: Assessment Exam system, rank-based module assignments (live) · Date: "+ymd(new Date())+" · Rule: 20 questions per module, pass mark "+CFG.passMark+" correct · Key: ■ = required for this rank",
+                 g1:"TRAINING PRESENTATIONS (01–33)", g2:"VIDEO TRAININGS (34–44)", code:"Code", mod:"TRAINING MODULE", tot:"Total modules", vid:"of which video",
+                 note:"Direct export of the rank-based assignments defined in the exam system. Shore-based roles are not listed; they see all modules.", print:"Print / Save as PDF"}
+              : {t1:"GLORY SHIP MANAGEMENT — İNKA AKADEMİ", t2:"Gemi Personeli Eğitim Matrisi",
+                 sub:"Kaynak: Değerlendirme Sınavı sistemi, göreve göre modül atamaları (canlı) · Tarih: "+ymd(new Date())+" · Kural: her modül 20 soru, geçme en az "+CFG.passMark+" doğru · İşaret: ■ = bu görev için zorunlu",
+                 g1:"EĞİTİM SUNUMLARI (01–33)", g2:"VİDEO EĞİTİMLERİ (34–44)", code:"Kod", mod:"MODÜL", tot:"Toplam modül", vid:"bunun videosu",
+                 note:"Sınav sisteminde tanımlı göreve-göre atamaların birebir dökümüdür. Kara ofisi görevleri listelenmez; onlar tüm modülleri görür.", print:"Yazdır / PDF olarak kaydet"};
+  var has=function(r,c){ return modulesForRole(r).indexOf(c)>=0; };
+  var head='<tr><th class="k">'+TT.code+'</th><th class="n">'+TT.mod+'</th>'+ranks.map(function(r){ return '<th class="r">'+esc(MATRIX_RANK_LABEL[r]||r)+'</th>'; }).join("")+'</tr>';
+  var body="";
+  [[TT.g1, codes.filter(function(c){return c<="33";})],[TT.g2, codes.filter(function(c){return c>="34";})]].forEach(function(g){
+    body+='<tr class="g"><td colspan="'+(2+ranks.length)+'">'+esc(g[0])+'</td></tr>';
+    g[1].forEach(function(c){
+      var p = en ? (bcE[c]&&bcE[c].name) : (bcT[c]&&bcT[c].name), s = en ? (bcT[c]&&bcT[c].name) : (bcE[c]&&bcE[c].name);
+      body+='<tr><td class="k">'+c+'</td><td class="n"><b>'+esc(p||c)+'</b>'+(s&&s!==p?'<br><span class="s">'+esc(s)+'</span>':'')+'</td>'+
+        ranks.map(function(r){ return '<td class="c'+(has(r,c)?" on":"")+'"></td>'; }).join("")+'</tr>';
+    });
+  });
+  body+='<tr class="t"><td colspan="2">'+TT.tot+'</td>'+ranks.map(function(r){ return '<td class="c">'+modulesForRole(r).length+'</td>'; }).join("")+'</tr>';
+  body+='<tr class="t v"><td colspan="2">'+TT.vid+'</td>'+ranks.map(function(r){ return '<td class="c">'+modulesForRole(r).filter(function(c){return c>="34";}).length+'</td>'; }).join("")+'</tr>';
+  return '<!doctype html><html lang="'+lc+'"><head><meta charset="utf-8"><title>'+esc(TT.t2)+'</title><style>'+
+    '@page{size:A4 landscape;margin:8mm}body{font-family:Arial,Helvetica,sans-serif;margin:8mm;color:#111}h1{font-size:15px;text-align:center;margin:0}h2{font-size:13px;text-align:center;margin:2px 0 4px}'+
+    '.sub{font-size:8.5px;text-align:center;color:#555;margin-bottom:6px}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #9aa3af;padding:2px 3px;font-size:8px;vertical-align:middle}'+
+    'th{background:#f3f4f6;font-weight:700}th.r{writing-mode:vertical-rl;transform:rotate(180deg);height:58px;font-size:7.5px}th.k,td.k{width:22px;text-align:center}th.n,td.n{width:190px;text-align:left}'+
+    'td.c{text-align:center}td.c.on{background:#1E5AA8}tr.g td{background:#e8eef7;font-weight:700;font-size:8.5px}tr.t td{background:#f3f4f6;font-weight:700;text-align:center}tr.t td:first-child{text-align:left}tr.v td{font-weight:400;color:#555}'+
+    '.s{color:#666;font-size:7px}.note{font-size:8px;color:#444;margin-top:6px}.bar{margin-bottom:8px}.bar button{padding:6px 12px}@media print{.bar{display:none}}</style></head><body>'+
+    '<div class="bar"><button onclick="window.print()">🖨 '+esc(TT.print)+'</button></div>'+
+    '<h1>'+esc(TT.t1)+'</h1><h2>'+esc(TT.t2)+'</h2><div class="sub">'+esc(TT.sub)+'</div>'+
+    '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table><div class="note">'+esc(TT.note)+'</div></body></html>';
+}
+/* ---- D6: sertifika süresi dolacaklar — CSV ve takvim (ICS) ---- */
+function expiryRows(liveRecs, maxDays){
+  var out=[];
+  (liveRecs||[]).forEach(function(r){
+    var e=certExpiryInfo(r); if(!e) return;
+    if(e.daysLeft<= (maxDays||90)) out.push({ name:r.name||"", rank:r.rank||"", vessel:r.vessel||"", sicil:r.sicil||"", issued:(r.finishedAt||r.ts||""), valid:ymd(e.val), daysLeft:e.daysLeft, certNo:r.certNo||"" });
+  });
+  out.sort(function(a,b){ return a.daysLeft-b.daysLeft; });
+  return out;
+}
+function expiryCsv(rows){
+  var head=["ad","gorev","gemi","seamans_book_no","bitirme","gecerlilik_sonu","kalan_gun","belge_no"];
+  return [head.join(";")].concat(rows.map(function(x){ return [csv(x.name),csv(x.rank),csv(x.vessel),csv(x.sicil),String(x.issued).slice(0,10),x.valid,x.daysLeft,csv(x.certNo)].join(";"); })).join("\n");
+}
+function expiryIcs(rows){
+  var pad=function(n){ return (n<10?"0":"")+n; };
+  var stamp=new Date().toISOString().replace(/[-:]/g,"").replace(/\.\d+Z$/,"Z");
+  var lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//INKA Akademi//Sertifika Sureleri//TR","CALSCALE:GREGORIAN"];
+  rows.forEach(function(x,i){
+    var d=x.valid.split("-"); var y=d[0], m=d[1], dd=d[2];
+    lines.push("BEGIN:VEVENT","UID:inka-cert-"+i+"-"+(x.sicil||x.name).replace(/[^A-Za-z0-9]/g,"")+"@inkaacademy",
+      "DTSTAMP:"+stamp, "DTSTART;VALUE=DATE:"+y+m+dd, "DTEND;VALUE=DATE:"+y+m+dd,
+      "SUMMARY:"+("Sertifika suresi doluyor: "+x.name+" ("+x.rank+" / "+x.vessel+")").replace(/[,;]/g," "),
+      "DESCRIPTION:"+("Belge "+x.certNo+" - gecerlilik sonu "+x.valid).replace(/[,;]/g," "),
+      "BEGIN:VALARM","TRIGGER:-P30D","ACTION:DISPLAY","DESCRIPTION:30 gun kaldi","END:VALARM","END:VEVENT");
+  });
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+}
 function buildAuditSummaryReport(candidateRows, liveRecs){
   var byAid={}; (liveRecs||[]).forEach(function(r){ if(r.attemptId) byAid[r.attemptId]=r; });
   /* C3 (Denetim Özeti): ad+gemi yedek eşleme — Gemi Panosu ile aynı kural */
@@ -4414,6 +4507,26 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
       '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
       '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
+      '<button class="btn sm ghost" id="aMatrixTr">🗂 '+(lang==="en"?"Matrix (TR)":"Matrisi indir (TR)")+'</button>'+
+      '<button class="btn sm ghost" id="aMatrixEn">🗂 '+(lang==="en"?"Matrix (EN)":"Matrisi indir (EN)")+'</button>'+
+      '<button class="btn sm ghost" id="aExpiryCsv">⏳ '+(lang==="en"?"Expiring ≤90d (CSV)":"Süresi dolacaklar ≤90 gün (CSV)")+'</button>'+
+      '<button class="btn sm ghost" id="aExpiryIcs">📅 '+(lang==="en"?"Expiring (calendar .ics)":"Süresi dolacaklar (takvim .ics)")+'</button>'+
+      '<button class="btn sm ghost" id="aKit">🧰 '+(lang==="en"?"Ship kit (offline)":"Gemi kiti (çevrimdışı)")+'</button>'+
+    '</div>'+
+    '<div id="aKitBox" style="display:'+(kitBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:.84rem;line-height:1.5">'+
+      (lang==="en"
+        ? '<b>Ship kit — running the exam with poor or no internet</b><ol style="margin:6px 0 6px 18px;padding:0">'+
+          '<li>Download the whole site as a ZIP: <a href="https://github.com/inkaacademy/inkaacademy.github.io/archive/refs/heads/main.zip" target="_blank" rel="noopener">inkaacademy.github.io-main.zip</a> (contains <code>index.html</code> + the <code>decks/</code> presentations).</li>'+
+          '<li>Unzip on the ship computer and open <code>index.html</code> directly (double-click). Presentations (01–33) open offline; <b>videos (34–44) need internet</b> (Google Drive).</li>'+
+          '<li>Each candidate opens their personal link on that computer (any number of tabs). Progress stays on the device; when internet returns it syncs by itself (badge ☁/⚠).</li>'+
+          '<li>Never online? At the end each candidate copies the <b>"Send result to administrator"</b> code and you paste it into <b>Records → Import result code</b>.</li></ol>'+
+          '<div style="color:var(--muted);font-size:.78rem">Re-download the ZIP after each new version (check the build stamp in the footer).</div>'
+        : '<b>Gemi kiti — internet zayıf/yokken sınav</b><ol style="margin:6px 0 6px 18px;padding:0">'+
+          '<li>Sitenin tamamını ZIP olarak indir: <a href="https://github.com/inkaacademy/inkaacademy.github.io/archive/refs/heads/main.zip" target="_blank" rel="noopener">inkaacademy.github.io-main.zip</a> (<code>index.html</code> + <code>decks/</code> sunumları içinde).</li>'+
+          '<li>Gemi bilgisayarında aç, <code>index.html</code>\'e çift tıkla. Sunumlar (01–33) çevrimdışı açılır; <b>videolar (34–44) internet ister</b> (Google Drive).</li>'+
+          '<li>Her aday kendi kişisel linkini o bilgisayarda açar (istediğin kadar sekme). İlerleme cihazda kalır; internet gelince kendiliğinden eşitlenir (rozet ☁/⚠).</li>'+
+          '<li>Hiç internet olmayacaksa: sonunda her aday <b>"Sonucu yöneticiye ilet"</b> kodunu kopyalar, sen <b>Kayıtlar → Sonuç kodu içe aktar</b> ile yapıştırırsın.</li></ol>'+
+          '<div style="color:var(--muted);font-size:.78rem">Her yeni sürümde ZIP\'i yeniden indir (altbilgideki sürüm damgasına bak).</div>')+
     '</div>'+
     '<div id="aCrewBox" style="display:'+(crewState.open?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+t.crewLead+'</div>'+
@@ -4456,6 +4569,15 @@ function renderAdmin(){
       '<button class="btn sm" id="aShare">🔗 '+t.admShare+'</button>'+
       '<button class="btn sm" id="aSettings">⚙ '+t.setTitle+'</button>'+
       '<button class="btn sm ghost" id="aBackup">💾 '+(lang==="en"?"Full backup (JSON)":"Tam Yedek (JSON)")+'</button>'+
+      '<button class="btn sm gold" id="aHealth">🩺 '+(lang==="en"?"System health":"Sistem Sağlığı")+'</button>'+
+    '</div>'+
+    '<div id="aHealthBox" style="display:'+(healthBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "One-click self-test of the live system: settings read, the CANDIDATE write path (open a throwaway record → write progress → count affected rows → clean up, using the public key exactly like a crew device), the admin settings-write path, and account-table access. Run this whenever something “doesn't show up”."
+        : "Canlı sistemin tek tuşla öz-testi: ayar okuma, ADAYIN yazma yolu (sahte bir kayıt aç → ilerleme yaz → etkilenen satırı say → temizle; gemideki cihazla birebir aynı genel anahtarla), yönetici ayar-yazma yolu ve hesap tablosu erişimi. “Panele düşmüyor” dendiğinde önce bunu çalıştırın.")+'</div>'+
+      '<div class="btnrow" style="margin-top:0"><button class="btn sm gold" id="aHealthRun">▶ '+(lang==="en"?"Run self-test":"Öz-testi çalıştır")+'</button>'+
+      '<span style="align-self:center;font-size:.78rem;color:var(--muted)">'+(lang==="en"?"Build":"Sürüm")+': <b>'+esc(BUILD_STAMP)+'</b></span></div>'+
+      '<div id="aHealthOut" style="margin-top:10px;font-size:.84rem;line-height:1.6;font-family:Consolas,monospace;white-space:pre-wrap"></div>'+
     '</div>'+
     '<div id="aKeysBox" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+t.keysLead+'</div>'+
@@ -4637,6 +4759,69 @@ function renderAdmin(){
     crewState.open=!crewState.open;
     document.getElementById("aCrewBox").style.display=crewState.open?"block":"none";
   };
+  /* D5 — matris indir (TR/EN): kendi kendine yeten HTML, açınca Yazdır → PDF */
+  (function(){
+    var bt=document.getElementById("aMatrixTr"), be=document.getElementById("aMatrixEn");
+    if(bt) bt.onclick=function(){ download("egitim_matrisi_"+ymd(new Date())+"_TR.html", buildMatrixHtml("tr"), "text/html;charset=utf-8"); toast(lang==="en"?"Matrix (TR) downloaded — open it and Print → Save as PDF":"Matris (TR) indirildi — açıp Yazdır → PDF olarak kaydet","ok"); };
+    if(be) be.onclick=function(){ download("training_matrix_"+ymd(new Date())+"_EN.html", buildMatrixHtml("en"), "text/html;charset=utf-8"); toast(lang==="en"?"Matrix (EN) downloaded — open it and Print → Save as PDF":"Matris (EN) indirildi — açıp Yazdır → PDF olarak kaydet","ok"); };
+  })();
+  /* D6 — süresi dolacaklar: CSV + takvim */
+  (function(){
+    var bc=document.getElementById("aExpiryCsv"), bi=document.getElementById("aExpiryIcs");
+    var rowsFn=function(){ return expiryRows(liveRecs, 90); };
+    if(bc) bc.onclick=function(){ var rows=rowsFn(); if(!rows.length){ toast(lang==="en"?"No certificate expires within 90 days.":"90 gün içinde süresi dolan sertifika yok.","ok"); return; } download("sertifika_sure_dolum_"+ymd(new Date())+".csv", "﻿"+expiryCsv(rows), "text/csv;charset=utf-8"); toast((lang==="en"?"Exported ":"Dışa aktarıldı: ")+rows.length,"ok"); };
+    if(bi) bi.onclick=function(){ var rows=rowsFn(); if(!rows.length){ toast(lang==="en"?"No certificate expires within 90 days.":"90 gün içinde süresi dolan sertifika yok.","ok"); return; } download("sertifika_sure_dolum_"+ymd(new Date())+".ics", expiryIcs(rows), "text/calendar;charset=utf-8"); toast((lang==="en"?"Calendar file: ":"Takvim dosyası: ")+rows.length+(lang==="en"?" reminders (30 days before)":" hatırlatma (30 gün önce)"),"ok"); };
+  })();
+  /* D7 — gemi kiti kutusu */
+  (function(){ var b=document.getElementById("aKit"), box=document.getElementById("aKitBox"); if(b&&box) b.onclick=function(){ kitBoxOpen=!kitBoxOpen; box.style.display=kitBoxOpen?"block":"none"; }; })();
+  /* D1 — Sistem Sağlığı öz-testi */
+  (function(){
+    var b=document.getElementById("aHealth"), box=document.getElementById("aHealthBox"), run=document.getElementById("aHealthRun"), out=document.getElementById("aHealthOut");
+    if(!b||!box) return;
+    b.onclick=function(){ healthBoxOpen=!healthBoxOpen; box.style.display=healthBoxOpen?"block":"none"; };
+    var L=function(tr,en){ return lang==="en"?en:tr; };
+    function line(ok, text){ out.innerHTML += (ok===true?"✅ ":(ok===false?"❌ ":"ℹ️ "))+esc(text)+"\n"; }
+    function anonH(extra){ var h={ "apikey":SB_ANON_KEY, "Authorization":"Bearer "+SB_ANON_KEY, "Content-Type":"application/json" }; if(extra) for(var k in extra) h[k]=extra[k]; return h; }
+    function cr(r){ try{ return r.headers.get("Content-Range")||""; }catch(e){ return ""; } }
+    if(run) run.onclick=async function(){
+      run.disabled=true; out.innerHTML="";
+      var okCount=0, total=0;
+      function mark(ok, text){ total++; if(ok) okCount++; line(ok, text); }
+      /* son başarılı aday senkronu (bulut kayıtlarından) */
+      var lastSync=null; (liveRecs||[]).forEach(function(r){ if(r.cloudStatus && r.cloudStatus!=="registered"){ var t=r.finishedAt||r.ts; if(t && (!lastSync || t>lastSync)) lastSync=t; } });
+      line(null, L("Sürüm: ","Build: ")+BUILD_STAMP);
+      line(null, L("Son başarılı aday senkronu: ","Last successful candidate sync: ")+(lastSync?admFmtDate(lastSync):L("henüz yok","none yet")));
+      /* 1) ayar okuma */
+      try{ var r1=await sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required,role_modules,exam_cfg&id=eq.1",{headers:anonH()}); var j1=r1.ok?await r1.json():null;
+        mark(!!(j1&&j1.length), L("Ayarlar okunuyor (app_settings)","Settings readable (app_settings)")+(j1&&j1.length?" — exam_cfg: "+Object.keys(j1[0].exam_cfg||{}).length+L(" alan"," keys"):""));
+      }catch(e){ mark(false, L("Ayarlar okunamadı: ","Settings read failed: ")+e); }
+      /* 2) ADAY yazma yolu — genel anahtarla, gemideki cihaz gibi */
+      var aid="ZZ_HEALTH_"+Date.now();
+      try{
+        var r2=await sbFetch(SB_URL+"/rest/v1/"+SB_TABLE,{method:"POST",headers:anonH({"Prefer":"return=minimal"}),body:JSON.stringify({attempt_id:aid,name:"ZZ HEALTH CHECK - SILINEBILIR",rank:"AB",vessel:"TEST",seamans_book_no:"0",lang:"tr",company:"TEST",started_at:new Date().toISOString(),status:"registered",pass_mark:CFG.passMark,module_count:1})});
+        mark(r2.status===201, L("Aday: kayıt açma (INSERT) → HTTP ","Candidate: open record (INSERT) → HTTP ")+r2.status);
+        var r3=await sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?attempt_id=eq."+encodeURIComponent(aid),{method:"PATCH",headers:anonH({"Prefer":"return=minimal, count=exact","X-Attempt-Id":aid}),body:JSON.stringify({status:"in_progress",passed_count:0})});
+        var c3=cr(r3); var rows3=/\/(\d+)\s*$/.test(c3)?+RegExp.$1:(c3?0:-1);
+        mark(r3.ok && rows3===1, L("Aday: ilerleme yazma (PATCH) → etkilenen satır: ","Candidate: write progress (PATCH) → rows affected: ")+(rows3<0?"?":rows3)+(rows3===0?L("  ← SQL 16 çalıştırılmamış olabilir","  ← SQL 16 may be missing"):""));
+        var r4=await sbFetch(SB_URL+"/rest/v1/"+SB_TABLE+"?attempt_id=eq."+encodeURIComponent(aid),{method:"PATCH",headers:anonH({"Prefer":"return=minimal, count=exact","X-Attempt-Id":aid}),body:JSON.stringify({status:"deleted"})});
+        var c4=cr(r4); var rows4=/\/(\d+)\s*$/.test(c4)?+RegExp.$1:-1;
+        mark(r4.ok && rows4===1, L("Test satırı temizlendi (silindi işaretlendi)","Test record cleaned (marked deleted)"));
+      }catch(e){ mark(false, L("Aday yazma yolu hata: ","Candidate write path error: ")+e); }
+      /* 3) yönetici ayar-yazma yolu */
+      try{
+        var un=""; try{ un=localStorage.getItem(LS_ADMIN_USER)||""; }catch(e){}
+        if(adminAuthHash && un){ var okS=await pushCloudSettingsPatch({}); mark(okS===true, L("Yönetici: ayar yazma (admin_set_settings RPC)","Admin: settings write (admin_set_settings RPC)")+(okS?"":L("  ← SQL 17 çalıştırılmamış ya da şifre değişmiş olabilir","  ← SQL 17 missing or password changed"))); }
+        else if(isAdminAuthed()){ var okK=await pushCloudSettingsPatch({}); mark(okK===true, L("Yönetici: ayar yazma (servis anahtarı yolu)","Admin: settings write (service-key path)")); }
+        else line(null, L("Yönetici ayar-yazma testi atlandı — bu sekmede giriş yok","Admin settings-write test skipped — not signed in on this tab"));
+      }catch(e){ mark(false, L("Yönetici yazma yolu hata: ","Admin write path error: ")+e); }
+      /* 4) hesap tablosu */
+      try{ var r5=await sbFetch(SB_URL+"/rest/v1/candidate_users?select=attempt_id&limit=1",{headers:sbAdminHeaders({"Prefer":"count=exact"})}); var c5=cr(r5); var n5=/\/(\d+)\s*$/.test(c5)?+RegExp.$1:null;
+        mark(r5.ok, L("Hesap tablosu erişimi (candidate_users)","Account table access (candidate_users)")+(n5!=null?" — "+n5+L(" hesap"," accounts"):""));
+      }catch(e){ mark(false, L("Hesap tablosu hata: ","Account table error: ")+e); }
+      line(null, L("Genel: ","Overall: ")+okCount+"/"+total+" ✅"+(okCount===total?L("  — her şey yolunda","  — all good"):L("  — kırmızı satırlara bak","  — check the red lines")));
+      run.disabled=false;
+    };
+  })();
   document.getElementById("aSavedCrews").onclick=function(){
     savedCrewsOpen=!savedCrewsOpen;
     document.getElementById("aSavedCrewsBox").style.display=savedCrewsOpen?"block":"none";
@@ -4680,15 +4865,24 @@ function renderAdmin(){
         if(!open) return head;
         var order={donefail:0,prog:1,none:2,donepass:3};
         people.sort(function(a,b){ return (order[a.st]-order[b.st]) || String(a.u.display_name).localeCompare(String(b.u.display_name)); });
+        var bcN=byCode(lang);
         var rows=people.map(function(x){
           var rec=x.rec, mods=rec?(rec.mods||[]):[], fin=mods.filter(function(m){return m.end;}).length, tot=rec?(rec.moduleCount||mods.length):"—";
           var last=rec?(rec.finishedAt||rec.ts):null;
+          /* D4 — görevine göre zorunlu / bitirilen / eksik */
+          var ow=owedForPerson(x.u.rank, rec), pct=ow.required?Math.round(ow.done/ow.required*100):0;
+          var owedCell = ow.required
+            ? '<div style="min-width:120px"><div style="display:flex;justify-content:space-between;font-size:.72rem"><span>'+ow.done+' / '+ow.required+'</span><span style="color:var(--muted)">'+pct+'%</span></div>'+
+              '<div style="height:6px;background:var(--line);border-radius:99px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+(pct>=100?"var(--ok)":"var(--sky)")+'"></div></div>'+
+              (ow.missing.length ? '<details style="margin-top:3px"><summary style="cursor:pointer;font-size:.72rem;color:var(--bad)">'+ow.missing.length+' '+(lang==="en"?"owed":"eksik")+'</summary><div style="font-size:.7rem;line-height:1.35;margin-top:2px">'+
+                 ow.missing.map(function(c){ return c+" — "+esc(bcN[c]?bcN[c].name:c); }).join("<br>")+'</div></details>' : '<div style="font-size:.72rem;color:var(--ok)">✓ '+(lang==="en"?"complete":"tamam")+'</div>')+'</div>'
+            : '—';
           return '<tr><td>'+esc(x.u.display_name||"")+'</td><td>'+esc(x.u.rank||"—")+'</td><td>'+pill(x.st)+'</td>'+
-            '<td class="sc">'+(rec?(fin+" / "+tot):"—")+'</td><td>'+(last?admFmtDate(last):"—")+'</td>'+
+            '<td class="sc">'+(rec?(fin+" / "+tot):"—")+'</td><td>'+owedCell+'</td><td>'+(last?admFmtDate(last):"—")+'</td>'+
             '<td>'+(rec?'<button class="btn sm ghost fleet-open" data-aid="'+esc(rec.attemptId)+'">'+(lang==="en"?"Open":"Aç")+'</button>':'')+'</td></tr>';
         }).join("");
         var notStarted=people.filter(function(x){ return x.st==="none"; }).map(function(x){ return x.u.display_name; });
-        return head+'<div style="overflow-x:auto;margin-top:6px"><table class="rec crew-table"><thead><tr><th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.thStatus+'</th><th>'+t.admThModules+'</th><th>'+(lang==="en"?"Last activity":"Son işlem")+'</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+        return head+'<div style="overflow-x:auto;margin-top:6px"><table class="rec crew-table"><thead><tr><th>'+t.admThCand+'</th><th>'+t.rankLbl+'</th><th>'+t.thStatus+'</th><th>'+t.admThModules+'</th><th>'+(lang==="en"?"Required · owed":"Zorunlu · eksik")+'</th><th>'+(lang==="en"?"Last activity":"Son işlem")+'</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
           '<div class="btnrow" style="margin-top:6px">'+
             (notStarted.length?'<button class="btn sm ghost fleet-copy-ns" data-v="'+esc(v)+'">📋 '+(lang==="en"?"Copy not-started names":"Başlamayanları kopyala")+' ('+notStarted.length+')</button>':'')+
             '<button class="btn sm ghost fleet-certs" data-v="'+esc(v)+'">📄 '+(lang==="en"?"Vessel certificates PDF":"Gemi Sertifikaları (PDF)")+'</button>'+
