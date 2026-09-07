@@ -777,16 +777,21 @@ function pullCloudSettings(){
       }
     }).catch(function(){});
 }
+/* Her ikisi de artık gerçek başarı/başarısızlık bilgisini bir Promise<boolean> olarak döndürür —
+   önceden tamamen "fire and forget" idi, yönetici panelde tıklandığında buluta gerçekten
+   yazılıp yazılmadığını hiçbir şey göstermiyordu (sessiz başarısızlık, teşhis etmeyi zorlaştırdı). */
 function pushCloudWatchRequired(v){
-  if(!SB_ON) return;
+  if(!SB_ON) return Promise.resolve(false);
   sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,watch_required:!!v}) }).catch(function(){});
-  sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({watch_required:!!v}) }).catch(function(){});
+  return sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({watch_required:!!v}) })
+    .then(function(r){ return !!(r && r.ok); }).catch(function(){ return false; });
 }
 function pushCloudRoleModules(rm){
-  if(!SB_ON) return;
+  if(!SB_ON) return Promise.resolve(false);
   var body=JSON.stringify({role_modules:rm||{}});
   sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,role_modules:rm||{}}) }).catch(function(){});
-  sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:body }).catch(function(){});
+  return sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:body })
+    .then(function(r){ return !!(r && r.ok); }).catch(function(){ return false; });
 }
 function cloudRowToRec(row){
   var rec = (row.record && typeof row.record==="object") ? JSON.parse(JSON.stringify(row.record)) : {};
@@ -3533,18 +3538,26 @@ function renderSettings(){
     if(!chosen.length || chosen.length>=CFG.modules.length){ delete CFG.roleModules[role]; }
     else CFG.roleModules[role]=ALL_CODES.filter(function(c){return chosen.indexOf(c)>=0;});
     saveCfg();
-    pushCloudRoleModules(CFG.roleModules);
     var asg=CFG.roleModules[role];
     document.getElementById("rmMsg").textContent = asg? t.setRoleSaved(role, asg.length) : t.setRoleClearedMsg(role);
     for(var i=0;i<rmSel.options.length;i++){
       var o=rmSel.options[i], rn=o.value;
       o.text=rn+((CFG.roleModules[rn]&&CFG.roleModules[rn].length)?" •":"");
     }
+    pushCloudRoleModules(CFG.roleModules).then(function(ok){
+      var el=document.getElementById("rmMsg"); if(!el) return;
+      el.textContent += ok ? " ☁ (tüm cihazlara gönderildi)" : " ⚠ (buluta gönderilemedi — sadece bu cihazda kaydedildi, interneti kontrol edin)";
+    });
   };
   document.getElementById("rmClear").onclick=function(){
-    delete CFG.roleModules[rmSel.value]; saveCfg(); pushCloudRoleModules(CFG.roleModules); fillRm();
-    document.getElementById("rmMsg").textContent=t.setRoleClearedMsg(rmSel.value);
+    var role=rmSel.value;
+    delete CFG.roleModules[role]; saveCfg(); fillRm();
+    document.getElementById("rmMsg").textContent=t.setRoleClearedMsg(role);
     for(var i=0;i<rmSel.options.length;i++){ var o=rmSel.options[i]; o.text=o.value+((CFG.roleModules[o.value]&&CFG.roleModules[o.value].length)?" •":""); }
+    pushCloudRoleModules(CFG.roleModules).then(function(ok){
+      var el=document.getElementById("rmMsg"); if(!el) return;
+      el.textContent += ok ? " ☁ (tüm cihazlara gönderildi)" : " ⚠ (buluta gönderilemedi — sadece bu cihazda kaydedildi, interneti kontrol edin)";
+    });
   };
 
   document.getElementById("sLogo").onchange=function(){
