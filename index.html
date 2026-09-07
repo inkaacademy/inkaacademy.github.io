@@ -1396,7 +1396,7 @@ var CFG_DEFAULT = {
     "Doctor":["01","04","05"],
     "Accounting Manager":["01","04"]
   },
-  vessels:["M/V WERRATAL","M/V KASSEL","M/V ARUCAS","M/V UNITY BULK","M/V ARIANDA","M/V OCEAN DREAM","M/V İMMENSİTY"]
+  vessels:["M/V WERRATAL","M/V KASSEL","M/V ARUCAS","M/V UNITY BULK","M/V ARIANDA","M/V OCEAN DREAM","M/V IMMENSITY"]
 };
 /* Yeni Video Eğitimi modülleri (34-44) her rolün mevcut modül listesine otomatik eklenir,
    böylece 28 rolün her birini elle düzenlemeye gerek kalmaz — dar bir listesi olmayan roller
@@ -1894,24 +1894,26 @@ function h32(str){ var h=0; for(var i=0;i<str.length;i++) h=(h*31+str.charCodeAt
 function b64urlEnc(s){ try{ return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }catch(e){ return ""; } }
 function b64urlDec(s){ try{ s=s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4) s+="="; return decodeURIComponent(escape(atob(s))); }catch(e){ return ""; } }
 
+/* Sabit kurum logosu — çapa + yeşil halka + dalgalar. Bilerek CFG.logo'ya (Ayarlar'dan
+   yüklenen, cihaza özel localStorage'da saklanan logo) hiç bakmaz: o mekanizma önceden
+   CFG sürümü her değiştiğinde (LS_CFG bump) sıfırlanıyor ve "logo her güncellemede
+   bozuluyor" şikayetine yol açıyordu. Logo artık kodun kendisinde sabit, hiçbir
+   ayar/sürüm değişikliğinden etkilenmez. */
 function inkaMark(px){
   px=px||52;
-  return '<svg width="'+px+'" height="'+px+'" viewBox="0 0 100 104" xmlns="http://www.w3.org/2000/svg" aria-label="INKA">'+
-    '<circle cx="50" cy="46" r="33" fill="none" stroke="#1f4e79" stroke-width="4" stroke-dasharray="5 4"/>'+
-    '<line x1="50" y1="15" x2="50" y2="27" stroke="#1f4e79" stroke-width="3"/>'+
-    '<line x1="37" y1="20" x2="63" y2="20" stroke="#1f4e79" stroke-width="3" stroke-linecap="round"/>'+
-    '<path d="M37 20 l-5 8 h10 z" fill="#1f4e79"/><path d="M63 20 l-5 8 h10 z" fill="#1f4e79"/>'+
-    '<circle cx="50" cy="34" r="4.5" fill="none" stroke="#1f4e79" stroke-width="3"/>'+
-    '<line x1="50" y1="38" x2="50" y2="70" stroke="#1f4e79" stroke-width="3"/>'+
-    '<line x1="39" y1="46" x2="61" y2="46" stroke="#1f4e79" stroke-width="3" stroke-linecap="round"/>'+
-    '<path d="M30 60 A20 20 0 0 0 70 60" fill="none" stroke="#1f4e79" stroke-width="3"/>'+
-    '<path d="M30 60 l-2 -8 M30 60 l8 -2" stroke="#1f4e79" stroke-width="3" fill="none" stroke-linecap="round"/>'+
-    '<path d="M70 60 l2 -8 M70 60 l-8 -2" stroke="#1f4e79" stroke-width="3" fill="none" stroke-linecap="round"/>'+
-    '<text x="50" y="100" text-anchor="middle" font-family="Georgia,\'Times New Roman\',serif" font-style="italic" font-weight="700" font-size="22" fill="#1f4e79">inka</text>'+
+  return '<svg width="'+px+'" height="'+(px*122/100)+'" viewBox="0 0 100 122" xmlns="http://www.w3.org/2000/svg" aria-label="INKA">'+
+    '<path d="M19 76 A36 36 0 1 1 81 76" fill="none" stroke="#4CAF50" stroke-width="7" stroke-linecap="round"/>'+
+    '<circle cx="50" cy="26" r="8" fill="none" stroke="#1E88C7" stroke-width="6"/>'+
+    '<line x1="50" y1="34" x2="50" y2="76" stroke="#1E88C7" stroke-width="6"/>'+
+    '<line x1="35" y1="43" x2="65" y2="43" stroke="#1E88C7" stroke-width="6" stroke-linecap="round"/>'+
+    '<path d="M50 76 C33 76 22 67 18 54 L22 61 L25 52 L31 63 C34 69 41 74 50 76 Z" fill="#1E88C7"/>'+
+    '<path d="M50 76 C67 76 78 67 82 54 L78 61 L75 52 L69 63 C66 69 59 74 50 76 Z" fill="#1E88C7"/>'+
+    '<path d="M11 94 Q21 86 31 94 T51 94 T71 94 T91 94" stroke="#1E88C7" stroke-width="7" fill="none" stroke-linecap="round"/>'+
+    '<path d="M15 108 Q26 101 37 108 T59 108 T81 108" stroke="#1E88C7" stroke-width="7" fill="none" stroke-linecap="round"/>'+
+    '<path d="M27 120 Q37 114 47 120 T67 120" stroke="#1E88C7" stroke-width="6" fill="none" stroke-linecap="round"/>'+
   '</svg>';
 }
 function logoHTML(px, plain){
-  if(CFG.logo) return '<img src="'+CFG.logo+'" alt="'+esc(CFG.company)+'" style="height:'+px+'px;width:auto;max-width:'+(px*2.4)+'px;object-fit:contain">';
   return inkaMark(px);
 }
 function applyChrome(){
