@@ -867,6 +867,25 @@ function deleteRecords(list, then){
   saveRecords(loc);
   if(then) then();
 }
+/* Yönetici panelinden (içe aktarma) bir sınav kaydını buluta yazar — adayın cihazındaki
+   cloudPushDone/Progress'in yaptığının yönetici anahtarıyla yapılan karşılığı. Satır yoksa
+   oluşturur (POST; varsa 409 yok sayılır), sonra tam kaydı PATCH'ler. Promise<boolean>. */
+function adminPushRecordToCloud(rec){
+  if(!SB_ON || !rec || !rec.attemptId || !isAdminAuthed()) return Promise.resolve(false);
+  var mods=rec.mods||[], done=recDoneCount(rec), total=rec.moduleCount||mods.length||0;
+  var status = (total && done>=total) ? "completed" : (done>0 || mods.some(function(m){return m&&m.start;})) ? "in_progress" : "registered";
+  var base={ attempt_id:rec.attemptId, name:rec.name||"", rank:rec.rank||"", vessel:rec.vessel||"", seamans_book_no:rec.sicil||"",
+    lang:rec.lang||lang, company:rec.company||CFG.company, started_at:rec.startedAt||rec.ts||new Date().toISOString(), status:status,
+    pass_mark:rec.passMark, module_count:total };
+  var patch={ status:status, rank:base.rank, vessel:base.vessel, seamans_book_no:base.seamans_book_no,
+    module_count:total, passed_count:rec.passedCount, pass_mark:rec.passMark, record:rec };
+  if(status==="completed"){ patch.all_pass=rec.allPass; patch.total=rec.total; patch.focus_total=rec.focusTotal; patch.auto_any=rec.autoAny;
+    patch.duration_ms=rec.durationMs; patch.finished_at=rec.finishedAt; patch.cert_no=rec.certNo; }
+  var hdrs=sbAdminHeaders({"Prefer":"return=minimal"});
+  return sbFetch(SB_URL+"/rest/v1/"+SB_TABLE,{ method:"POST", headers:hdrs, body:JSON.stringify(base) }).catch(function(){})
+    .then(function(){ return sbUpdate(rec.attemptId, patch, hdrs); })
+    .catch(function(){ return false; });
+}
 function restoreRecord(r, then){
   if(r){ logAdminAction("restore_exam_record", (r.name||"?")+" ("+(r.attemptId||"")+")", ""); }
   if(r && r.cloudStatus==="deleted"){
@@ -1676,7 +1695,7 @@ var STR = {
   admCsvCopy:"CSV kopyala", admCsvDl:"CSV indir", admImport:"Sonuç kodu içe aktar",
   admChangePin:"PIN değiştir", admClear:"Kayıtları temizle",
   admImportGo:"Aktar",
-  admImportMsg:function(a,bad){ return a+" kayıt eklendi"+(bad?" · "+bad+" kod okunamadı":""); },
+  admImportMsg:function(a,bad,upd){ return a+" kayıt eklendi"+(upd?" · "+upd+" kayıt güncellendi":"")+(bad?" · "+bad+" kod okunamadı":""); },
   admThDate:"Tarih", admThCand:"Aday", admThRankVessel:"Rütbe / Gemi", admThModules:"Modül", admThPassed:"Geçilen Modüller",
   admCrewBtn:"Crew List → Linkler",
   crewLead:"Excel (.xlsx) mürettebat listesi yükleyin — isim/rütbe/seaman's book no sütunları otomatik bulunur ve her kişi için kayıt linki hazırlanır. Kişi linki KENDİSİ açar, sunumu izleyip sınavı KENDİSİ tamamlar; hiçbir kayıt otomatik \"geçti\" yapılmaz.",
@@ -1894,7 +1913,7 @@ var STR = {
   admCsvCopy:"Copy CSV", admCsvDl:"Download CSV", admImport:"Import result code",
   admChangePin:"Change PIN", admClear:"Clear records",
   admImportGo:"Import",
-  admImportMsg:function(a,bad){ return a+" record(s) added"+(bad?" · "+bad+" code(s) unreadable":""); },
+  admImportMsg:function(a,bad,upd){ return a+" record(s) added"+(upd?" · "+upd+" updated":"")+(bad?" · "+bad+" code(s) unreadable":""); },
   admThDate:"Date", admThCand:"Candidate", admThRankVessel:"Rank / Vessel", admThModules:"Modules", admThPassed:"Passed Modules",
   admCrewBtn:"Crew List → Links",
   crewLead:"Upload an Excel (.xlsx) crew list — name/rank/seaman's book columns are found automatically and a registration link is built per person. Each person opens their OWN link, watches the presentation and takes the exam THEMSELVES; nothing is auto-marked as passed.",
@@ -2857,10 +2876,23 @@ function parseResultCode(code){
     return o;
   }catch(e){ return null; }
 }
+/* Bir kaydın "ne kadar dolu" olduğu: bitmiş modül sayısı. Aynı attemptId için gelen kod
+   mevcut kopyadan daha dolu (ör. cihazda 18 modül bitmiş, buradaki kopya 9'da kalmış) ya da
+   eşit dolulukta ama daha yeni ise, eskisinin YERİNE geçer. Önceden aynı attemptId ikinci kez
+   asla kabul edilmiyordu — yarım bir eski kopya varken tam sonucu yapıştırmak sessizce
+   "0 kayıt eklendi" ile atlanıyordu. */
+function recDoneCount(r){ return ((r&&r.mods)||[]).filter(function(m){ return m&&m.end; }).length; }
 function mergeRecords(list, incoming){
-  var byId={}; list.forEach(function(r){ if(r.attemptId) byId[r.attemptId]=r; });
-  var added=0;
-  incoming.forEach(function(r){ if(r&&r.attemptId&&!byId[r.attemptId]){ byId[r.attemptId]=r; list.push(r); added++; } });
+  var idx={}; list.forEach(function(r,i){ if(r&&r.attemptId) idx[r.attemptId]=i; });
+  var added=0, updated=0, touched=[];
+  incoming.forEach(function(r){
+    if(!r||!r.attemptId) return;
+    var i=idx[r.attemptId];
+    if(i===undefined){ idx[r.attemptId]=list.length; list.push(r); added++; touched.push(r); return; }
+    var cur=list[i], dn=recDoneCount(r), dc=recDoneCount(cur);
+    if(dn>dc || (dn===dc && String(r.ts||"")>String(cur.ts||""))){ list[i]=r; updated++; touched.push(r); }
+  });
+  mergeRecords.lastTouched=touched; mergeRecords.lastUpdated=updated;
   return added;
 }
 function logAttempt(){
@@ -4368,9 +4400,26 @@ function renderAdmin(){
     var parsed=toks.map(parseResultCode).filter(Boolean);
     var list=loadRecords();
     var added=mergeRecords(list, parsed);
+    var updated=mergeRecords.lastUpdated||0, touched=mergeRecords.lastTouched||[];
     saveRecords(list);
-    document.getElementById("aImportMsg").textContent=t.admImportMsg(added, toks.length-parsed.length);
-    setTimeout(renderAdmin, 900);
+    var msgEl=document.getElementById("aImportMsg");
+    msgEl.textContent=t.admImportMsg(added, toks.length-parsed.length, updated);
+    /* Yapıştırılan sonuç sadece bu tarayıcıda kalmasın: yönetici anahtarıyla buluta da yaz,
+       böylece Gemi Panosu / diğer yönetici cihazları / adayın kendi "aid" linki de görür. */
+    if(touched.length && isAdminAuthed()){
+      var pend=touched.length, okc=0;
+      touched.forEach(function(rec){
+        adminPushRecordToCloud(rec).then(function(ok){
+          if(ok) okc++;
+          if(--pend===0){
+            msgEl.textContent += ok||okc ? " ☁ ("+okc+"/"+touched.length+(lang==="en"?" sent to cloud)":" buluta da yazıldı)") : (lang==="en"?" ⚠ (cloud write failed — saved on this device only)":" ⚠ (buluta yazılamadı — sadece bu cihazda kaydedildi)");
+            refreshCloud(function(){ renderAdmin(); });
+          }
+        });
+      });
+    } else {
+      setTimeout(renderAdmin, 900);
+    }
   };
   document.getElementById("aCrew").onclick=function(){
     crewState.open=!crewState.open;
