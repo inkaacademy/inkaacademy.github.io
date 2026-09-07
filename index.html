@@ -748,6 +748,28 @@ function sbUpdate(attemptId, patch, hdrs){
     method:"PATCH", headers: hdrs || sbHeaders({ "Prefer":"return=minimal" }), body:JSON.stringify(patch)
   }).then(function(r){ return r.ok; }).catch(function(){ return false; });
 }
+/* Ayarlar (şimdilik yalnız watchRequired) tek bir cihazın localStorage'ında kalmasın diye
+   buluta da yazılır/okunur — aksi halde yönetici Ayarlar'dan bir şeyi kapatsa bile o değişiklik
+   SADECE değişikliği yapan tarayıcıda geçerli olur, önceden gönderilmiş kişisel linkleri açan
+   adayların cihazlarına hiç ulaşmaz (her cihaz kendi CFG_DEFAULT'unu kullanmaya devam eder). */
+function pullCloudSettings(){
+  if(!SB_ON) return;
+  sbFetch(SB_URL+"/rest/v1/app_settings?select=watch_required&id=eq.1",{ headers:sbHeaders() })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(rows){
+      if(!rows || !rows.length) return;
+      var wr = rows[0].watch_required;
+      if(typeof wr==="boolean" && wr!==CFG.watchRequired){
+        CFG.watchRequired = wr; saveCfg();
+        if(typeof state!=="undefined" && state) render();
+      }
+    }).catch(function(){});
+}
+function pushCloudWatchRequired(v){
+  if(!SB_ON) return;
+  sbFetch(SB_URL+"/rest/v1/app_settings",{ method:"POST", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({id:1,watch_required:!!v}) }).catch(function(){});
+  sbFetch(SB_URL+"/rest/v1/app_settings?id=eq.1",{ method:"PATCH", headers:sbHeaders({"Prefer":"return=minimal"}), body:JSON.stringify({watch_required:!!v}) }).catch(function(){});
+}
 function cloudRowToRec(row){
   var rec = (row.record && typeof row.record==="object") ? JSON.parse(JSON.stringify(row.record)) : {};
   function pick(a,b){ return (a!==undefined && a!==null) ? a : b; }
@@ -3542,7 +3564,7 @@ function renderSettings(){
     if(pendingLogo!==null) CFG.logo=pendingLogo;
     (function(){
       var d1=document.getElementById("sDecksOn"); if(d1) CFG.decksOn=d1.checked;
-      var dw=document.getElementById("sWatchReq"); if(dw) CFG.watchRequired=dw.checked;
+      var dw=document.getElementById("sWatchReq"); if(dw){ CFG.watchRequired=dw.checked; pushCloudWatchRequired(CFG.watchRequired); }
       var d2=document.getElementById("sDeckMin"); if(d2) CFG.deckMinSec=Math.max(0,Math.min(600,+d2.value||0));
       function parseDeckTa(id){
         var ta=document.getElementById(id); if(!ta) return null;
@@ -4977,6 +4999,7 @@ function render(){
 try{ var sl=localStorage.getItem(LS_LANG); if(sl==="en"||sl==="tr") lang=sl; }catch(e){}
 var qp=null; try{ qp=new URLSearchParams(location.search); }catch(e){}
 applyChrome();
+pullCloudSettings();
 function bootNormal(){
   var saved=load();
   if(qp && qp.has("lang") && (qp.get("lang")==="en"||qp.get("lang")==="tr")){ lang=qp.get("lang"); applyChrome(); }
