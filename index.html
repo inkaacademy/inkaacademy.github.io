@@ -653,18 +653,22 @@ function assignCandidateCredentials(people, vessel, cb){
    kendisi reddedilir; bu durumda sütunsuz olarak SESSİZCE yeniden dener, böylece bu özellik script
    çalıştırılmadan ÖNCE de var olan "Hesapları oluştur" akışını asla bozmaz. cb(ok, usedPlain). */
 function saveCandidateRows(rows, cb){
-  var withPlain=rows.map(function(row){ return row; });
+  var withAll=rows.map(function(row){ return row; });
+  /* Şema henüz güncellenmemişse (supabase-8/11 çalıştırılmadan önce) password_plain ve/veya
+     sign_on_date sütunları yoktur — reddedilirse ikisini de çıkarıp tekrar dener, böylece
+     "Hesapları oluştur" hiçbir zaman script sırasına bağımlı kalıp bozulmaz. */
+  var OPTIONAL_KEYS=["password_plain","sign_on_date"];
   sbFetch(SB_URL+"/rest/v1/candidate_users", {
     method:"POST", headers:sbAdminHeaders({"Prefer":"resolution=merge-duplicates,return=minimal"}),
-    body:JSON.stringify(withPlain)
+    body:JSON.stringify(withAll)
   }).then(function(r){
     if(r.ok){ cb(true, true); return; }
-    var noPlain=rows.map(function(row){
-      var c={}; for(var k in row) if(k!=="password_plain") c[k]=row[k]; return c;
+    var stripped=rows.map(function(row){
+      var c={}; for(var k in row) if(OPTIONAL_KEYS.indexOf(k)<0) c[k]=row[k]; return c;
     });
     sbFetch(SB_URL+"/rest/v1/candidate_users", {
       method:"POST", headers:sbAdminHeaders({"Prefer":"resolution=merge-duplicates,return=minimal"}),
-      body:JSON.stringify(noPlain)
+      body:JSON.stringify(stripped)
     }).then(function(r2){ cb(r2.ok, false); }).catch(function(){ cb(false, false); });
   }).catch(function(){ cb(false, false); });
 }
@@ -2139,6 +2143,7 @@ function newState(f){
     attemptId: f.attemptId || ("A"+Date.now().toString(36)+Math.random().toString(36).slice(2,7)),
     fromLink: !!f.attemptId,
     lang:lang, name:f.name, rank:f.rank, vessel:f.vessel, sicil:f.sicil, honor:true, shuffle:!!f.shuffle,
+    signOnDate:f.signOnDate||"",
     started:new Date().toISOString(), modules:codes,
     order:order, optOrder:optOrder, answers:answers, results:{}, mtime:{}, clock:{}, focus:focus, deckDone:{},
     current:0, phase: CFG.freeOrder ? "pick" : "module"
@@ -2291,7 +2296,8 @@ function renderIntro(resumable, prefill){
       sicil:document.getElementById("fSicil").value.trim(),
       shuffle:document.getElementById("fShuffle").checked,
       attemptId: prefill && prefill.aid,
-      allModules: isAdminAuthed() && !(prefill && prefill.aid)
+      allModules: isAdminAuthed() && !(prefill && prefill.aid),
+      signOnDate: prefill && prefill.signOn
     });
     save(); cloudPushStart(); render(); window.scrollTo(0,0);
   };
@@ -2751,7 +2757,8 @@ function buildRecord(){
     durationMs:(firstStart&&lastEnd)?(new Date(lastEnd)-new Date(firstStart)):null,
     focusTotal:mods.reduce(function(a,b){return a+(b.focus||0);},0),
     autoAny:mods.some(function(x){return x.auto;}),
-    honor:!!state.honor
+    honor:!!state.honor,
+    signOnDate:state.signOnDate||""
   };
   rec.certNo=grandCertNo(rec);
   return rec;
@@ -2967,8 +2974,19 @@ function fmtYMD(s){
   return dd+"."+m+"."+y;
 }
 function recBaseIso(rec){ return rec.startedAt || rec.ts || new Date().toISOString(); }
+/* "GG.AA.YYYY" (Crew List'teki Sign On tarihi biçimi) -> Date. Geçersizse null döner. */
+function parseDMY(s){
+  var m=/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(s||"").trim());
+  if(!m) return null;
+  var d=new Date(+m[3], +m[2]-1, +m[1]);
+  return isNaN(d.getTime()) ? null : d;
+}
 function certDates(rec){
-  var iss=new Date(rec.finishedAt || rec.ts || Date.now());
+  /* Crew List'te "Date of Sign on" varsa sertifikanın veriliş tarihi olarak O kullanılır —
+     kişi sınava hangi gün girerse girsin, sertifika gemiye asıl katılım tarihinden itibaren
+     geçerliymiş gibi düzenlenir. Yoksa eski davranış: gerçek bitirme/kayıt tarihi. */
+  var signOn = rec.signOnDate && parseDMY(rec.signOnDate);
+  var iss = signOn || new Date(rec.finishedAt || rec.ts || Date.now());
   var val=new Date(iss.getTime()); val.setFullYear(val.getFullYear()+CFG.validYears);
   return {issYMD:ymd(iss), validYMD:ymd(val)};
 }
@@ -3780,7 +3798,7 @@ function buildAuditSummaryReport(candidateRows, liveRecs){
 }
 function buildCrewHtmlReport(vessel, people, base){
   var rows=people.map(function(p,i){
-    var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId);
+    var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon);
     return '<tr>'+
       '<td class="c">'+(i+1)+'</td>'+
       '<td>'+esc(p.name)+'</td>'+
@@ -3825,10 +3843,10 @@ function genAid(){
   try{ if(window.crypto && crypto.randomUUID) return "L"+crypto.randomUUID().replace(/-/g,""); }catch(e){}
   return "L"+Date.now().toString(36)+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,10);
 }
-function crewLinkFor(base, name, rank, vessel, sicil, aid){
+function crewLinkFor(base, name, rank, vessel, sicil, aid, signon){
   return base+(base.indexOf("?")>=0?"&":"?")+"name="+encodeURIComponent(name)+"&rank="+encodeURIComponent(rank||"")+
     "&vessel="+encodeURIComponent(vessel||"")+"&sicil="+encodeURIComponent(sicil||"")+"&lang="+lang+
-    "&aid="+encodeURIComponent(aid||"");
+    "&aid="+encodeURIComponent(aid||"")+"&signon="+encodeURIComponent(signon||"");
 }
 
 /* Tek giriş ekranı — hem admin hem aday buradan girer, hangi hesap eşleşirse oraya gider.
@@ -3881,7 +3899,7 @@ function renderLoginGate(){
       candidateLoginRPC(u, p, function(cres){
         btn.textContent=L("Giriş yap","Sign in"); btn.disabled=false;
         if(!cres){ e.style.display="block"; e.textContent=L("Kullanıcı adı veya şifre hatalı.","Incorrect username or password."); return; }
-        var prefill={name:cres.display_name||"", rank:cres.rank||"", vessel:cres.vessel||"", sicil:cres.sicil||"", aid:cres.attempt_id||""};
+        var prefill={name:cres.display_name||"", rank:cres.rank||"", vessel:cres.vessel||"", sicil:cres.sicil||"", aid:cres.attempt_id||"", signOn:cres.sign_on_date||""};
         fetchExamStateByAid(prefill.aid, function(cloudState){
           if(cloudState){ state=cloudState; save(); render(); window.scrollTo(0,0); }
           else { renderIntro(null, prefill); }
@@ -4443,13 +4461,13 @@ function renderAdmin(){
       wrap.querySelectorAll(".saved-vessel-btn").forEach(function(b){
         b.onclick=function(){
           var v=b.getAttribute("data-v"); b.textContent="…";
-          sbFetch(SB_URL+"/rest/v1/candidate_users?vessel=eq."+encodeURIComponent(v)+"&select=username,display_name,rank,sicil,password_plain,attempt_id&order=display_name.asc", {
+          sbFetch(SB_URL+"/rest/v1/candidate_users?vessel=eq."+encodeURIComponent(v)+"&select=username,display_name,rank,sicil,password_plain,attempt_id,sign_on_date&order=display_name.asc", {
             method:"GET", headers:sbAdminHeaders()
           }).then(function(r){ return r.ok ? r.json() : []; }).then(function(rows){
             var people=(rows||[]).map(function(row){
               return {
                 name:row.display_name||"", rank:row.rank||"", rankRaw:row.rank||"", sicil:row.sicil||"",
-                username:row.username||"",
+                username:row.username||"", signon:row.sign_on_date||"",
                 password: row.password_plain || (lang==="en" ? "(saved before password storage — re-upload the Excel to reset)" : "(parola saklama eklenmeden önce kaydedilmiş — sıfırlamak için Excel'i tekrar yükleyin)"),
                 attemptId:row.attempt_id||"", savedToCloud:true, existing:true
               };
@@ -4491,7 +4509,7 @@ function renderAdmin(){
       if(!people || !people.length){ wrapEl.innerHTML=""; return; }
       var vessel=vesselEl.value.trim();
       var rowsHtml=people.map(function(p,i){
-        var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId);
+        var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon);
         var rankOpts='<option value="">'+esc(t.crewUnmatched)+'</option>'+ROLES.map(function(r){
           return '<option value="'+esc(r)+'"'+(r===p.rank?" selected":"")+'>'+esc(r)+'</option>';
         }).join("");
@@ -4531,7 +4549,7 @@ function renderAdmin(){
         var rows=people.map(function(p){
           return {
             username:p.username, password_hash:candidatePasswordHash(p.username, p.password),
-            password_plain:p.password,
+            password_plain:p.password, sign_on_date:p.signon||"",
             display_name:p.name, rank:p.rank||"", vessel:vessel||"", sicil:p.sicil||"", attempt_id:p.attemptId
           };
         });
@@ -4556,7 +4574,7 @@ function renderAdmin(){
       wrapEl.querySelectorAll(".crewCopyBtn").forEach(function(btn){
         btn.onclick=function(){
           var p=people[+btn.getAttribute("data-i")];
-          copyText(crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId), btn);
+          copyText(crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon), btn);
         };
       });
       /* Şifreyi yenile: kişinin buluttaki hesabına yeni şifre yazar (hash + düz metin); Excel'i
@@ -4585,7 +4603,7 @@ function renderAdmin(){
       });
       var copyAllBtn=document.getElementById("crewCopyAll");
       if(copyAllBtn) copyAllBtn.onclick=function(){
-        var lines=people.map(function(p){ return p.name+"\t"+p.rank+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId); });
+        var lines=people.map(function(p){ return p.name+"\t"+p.rank+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon); });
         copyText(lines.join("\n"), copyAllBtn);
       };
       var dlBtn=document.getElementById("crewDlCsv");
@@ -4593,7 +4611,7 @@ function renderAdmin(){
         var csvEsc=function(s){ s=String(s==null?"":s); return /[",\n]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s; };
         var lines=["Ad Soyad,Rütbe,Seaman's Book No,Kullanıcı Adı,Şifre,Link"];
         people.forEach(function(p){
-          lines.push([p.name,p.rank,p.sicil,p.username,p.password,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId)].map(csvEsc).join(","));
+          lines.push([p.name,p.rank,p.sicil,p.username,p.password,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId,p.signon)].map(csvEsc).join(","));
         });
         download((vessel||"crew")+" - sinav linkleri.csv", lines.join("\r\n"), "text/csv;charset=utf-8");
       };
@@ -4914,7 +4932,7 @@ function render(){
     if(ld && ld.phase){ renderIntro(ld); return; }
     var pf=null;
     if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil")||qp.has("aid"))){
-      pf={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||""};
+      pf={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||"", signOn:qp.get("signon")||""};
     }
     if(pf){ renderIntro(null, pf); return; }
     renderLoginGate();
@@ -4940,7 +4958,7 @@ function bootNormal(){
   else if(saved && saved.lang && (saved.lang==="en"||saved.lang==="tr")) { lang=saved.lang; applyChrome(); }
   var prefill=null;
   if(qp && (qp.has("name")||qp.has("rank")||qp.has("vessel")||qp.has("sicil")||qp.has("aid"))){
-    prefill={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||""};
+    prefill={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"", sicil:qp.get("sicil")||"", aid:qp.get("aid")||"", signOn:qp.get("signon")||""};
   }
   /* Bu cihazda zaten yarım kalmış bir ilerleme varsa (kaydolmuş/başlamış), kimliği ne olursa
      olsun devam edilmesine izin verilir — buradaki asıl kısıt, hiçbir yerel ilerlemesi VE
