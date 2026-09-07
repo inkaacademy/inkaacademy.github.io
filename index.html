@@ -2000,9 +2000,67 @@ function byCode(l){ var o={}; DATA[l].forEach(function(m){o[m.code]=m;}); return
 function activeCodes(){ return state? state.modules : CFG.modules; }
 function MODULES(){ var bc=byCode(lang); return activeCodes().map(function(c){return bc[c];}); }
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
-function save(){ if(state){ try{ localStorage.setItem(LS_STATE, JSON.stringify(state)); }catch(e){} } }
-function load(){ try{ return JSON.parse(localStorage.getItem(LS_STATE)); }catch(e){ return null; } }
-function clearState(){ try{ localStorage.removeItem(LS_STATE); }catch(e){} }
+/* ---- Kişi başına ayrı ilerleme yuvası ----
+   Önceden TÜM ilerleme tek bir localStorage anahtarında (LS_STATE) tutuluyordu. Gemide herkes
+   aynı bilgisayardan girdiği için: Levan bitirdikten sonra Eray kendi kişisel linkine tıklayınca
+   sistem o tek yuvada Levan'ın kaydını buluyor, Eray'ın bilgilerini getirmiyordu (tek çare gizli
+   pencereydi). Şimdi:
+     - yuva anahtarı = LS_STATE + ":" + attemptId  (kişi başına ayrı)
+     - bu SEKMENİN kimliği = adresteki ?aid= (linke tıklayanın kimliği, sekme için kesin)
+                              yoksa sessionStorage (sekmeye özel, sekmeler arası PAYLAŞILMAZ)
+                              yoksa "" (linksiz eski tek-kullanıcı davranışı: eski tek yuva)
+   Böylece aynı bilgisayarda istenildiği kadar kişisel link ayrı sekmelerde açılabilir; her sekme
+   kendi kişisiyle gelir ve birbirinin ilerlemesini EZMEZ. Eski tek yuvadaki kayıt, aynı kimliğe
+   aitse ilk açılışta kendi yuvasına taşınır — yarım sınavı olan kimse ilerleme kaybetmez. */
+var SS_ACTIVE_AID = "gsm_active_aid_v1";
+function stateKeyFor(aid){ return aid ? (LS_STATE+":"+aid) : LS_STATE; }
+function currentAid(){
+  try{ var q=new URLSearchParams(location.search).get("aid"); if(q) return q; }catch(e){}
+  try{ return sessionStorage.getItem(SS_ACTIVE_AID)||""; }catch(e){ return ""; }
+}
+function setActiveAid(aid){ try{ if(aid) sessionStorage.setItem(SS_ACTIVE_AID, aid); else sessionStorage.removeItem(SS_ACTIVE_AID); }catch(e){} }
+function readSlot(key){ try{ return JSON.parse(localStorage.getItem(key)); }catch(e){ return null; } }
+function save(){
+  if(!state) return;
+  try{
+    var aid=state.attemptId||"";
+    localStorage.setItem(stateKeyFor(aid), JSON.stringify(state));
+    if(aid) setActiveAid(aid);
+  }catch(e){}
+}
+function load(){
+  var aid=currentAid();
+  if(aid){
+    var s=readSlot(stateKeyFor(aid));
+    if(s) return s;
+    /* eski tek yuvadan taşıma: sadece AYNI kişiye aitse */
+    var legacy=readSlot(LS_STATE);
+    if(legacy && legacy.attemptId===aid){
+      try{ localStorage.setItem(stateKeyFor(aid), JSON.stringify(legacy)); localStorage.removeItem(LS_STATE); }catch(e){}
+      return legacy;
+    }
+    return null;
+  }
+  var lg=readSlot(LS_STATE);
+  if(lg && lg.attemptId) setActiveAid(lg.attemptId);
+  return lg;
+}
+function clearState(){
+  try{
+    var aid=(state&&state.attemptId)||currentAid();
+    if(aid){ localStorage.removeItem(stateKeyFor(aid)); var lg=readSlot(LS_STATE); if(lg && lg.attemptId===aid) localStorage.removeItem(LS_STATE); }
+    else localStorage.removeItem(LS_STATE);
+    setActiveAid("");
+  }catch(e){}
+}
+/* "Bu cihazdaki her şeyi sıfırla" için: eski tek yuva + kişi başına açılmış TÜM yuvalar. */
+function clearAllStates(){
+  try{
+    var ks=[]; for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k===LS_STATE || (k&&k.indexOf(LS_STATE+":")===0)) ks.push(k); }
+    ks.forEach(function(k){ localStorage.removeItem(k); });
+    setActiveAid("");
+  }catch(e){}
+}
 function stopTimer(){ if(TICK){ clearInterval(TICK); TICK=null; } }
 
 function h32(str){ var h=0; for(var i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))>>>0; return h.toString(36).toUpperCase(); }
@@ -3620,7 +3678,8 @@ function renderSettings(){
   };
   document.getElementById("sResetAll").onclick=function(){
     if(confirm(T().setResetConfirm)){
-      try{ localStorage.removeItem(LS_STATE); localStorage.removeItem(LS_LOG); localStorage.removeItem(LS_CFG); localStorage.removeItem(LS_LANG); localStorage.removeItem(LS_ADMIN); }catch(e){}
+      clearAllStates();
+      try{ localStorage.removeItem(LS_LOG); localStorage.removeItem(LS_CFG); localStorage.removeItem(LS_LANG); localStorage.removeItem(LS_ADMIN); }catch(e){}
       location.href=location.pathname;
     }
   };
