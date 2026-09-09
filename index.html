@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 19:10";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 19:22";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -5818,10 +5818,17 @@ if(qp && qp.has("verify")){
        Kullanıcı bu arada bir soruya başlamışsa (results sayısı değiştiyse) dokunulmaz. */
     bootNormal();
     var doneAtBoot=stateDoneCount(savedLocal);
-    fetchExamStateByAid(aidParam, function(cloudState){
-      if(!cloudState || !state || state.attemptId!==aidParam) return;
-      if(stateDoneCount(state)!==doneAtBoot) return;           /* bu arada yerelde ilerlendi */
-      if(stateDoneCount(cloudState) > stateDoneCount(state)){ state=cloudState; save(); render(); }
+    fetchExamStateByAid(aidParam, function(cloudState, failed){
+      if(failed){ toast(T().aidErrTitle, "bad", true); return; }
+      if(!cloudState) return;
+      /* ÖNEMLİ: bootNormal() sadece ekranı çizer; aday "kaldığın yerden devam et"e basana
+         kadar global `state` NULL kalır. Eski kod burada `!state` görüp her seferinde çıkıyordu,
+         yani buluttaki daha dolu kayıt HİÇ devralınmıyordu: cihazda kalmış eski/yarım bir
+         deneme (ör. 2/44), sınavını çoktan bitirmiş adaya kalıcı olarak gösteriliyordu. */
+      if(state && state.attemptId!==aidParam) return;
+      var cur = state || savedLocal;
+      if(stateDoneCount(cur)!==doneAtBoot) return;             /* bu arada yerelde ilerlendi */
+      if(stateDoneCount(cloudState) > doneAtBoot){ state=cloudState; save(); render(); window.scrollTo(0,0); }
     });
   } else {
     fetchExamStateByAid(aidParam, function(cloudState, failed){
