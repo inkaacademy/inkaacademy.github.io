@@ -60,6 +60,9 @@
   .langtoggle button.active{background:var(--gold);color:var(--navy)}
   .iconbtn{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 10px;font-size:.95rem;cursor:pointer;line-height:1}
   .sync-badge{display:none;align-items:center;gap:5px;font-size:.72rem;font-weight:700;padding:5px 10px;border-radius:99px;white-space:nowrap;border:1px solid rgba(255,255,255,.4);cursor:pointer}
+  .ttsbtn{margin-left:8px;background:transparent;border:1px solid var(--line);border-radius:7px;cursor:pointer;font-size:.85rem;padding:1px 7px;line-height:1.5;color:var(--muted);flex:0 0 auto}
+  .ttsbtn:hover{border-color:var(--navy);color:var(--navy)}
+  @media print{ .ttsbtn{display:none} }
   .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 14px;border-radius:10px;font-size:.85rem;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.28);max-width:92vw;line-height:1.35}
   .toast.ok{background:#1c7a3c}.toast.warn{background:#a15c00}.toast.bad{background:#a92a25}
   .toast button{margin-left:10px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:7px;padding:4px 9px;cursor:pointer;font-size:.8rem}
@@ -535,7 +538,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 23:44";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 23:55";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1923,6 +1926,12 @@ var STR = {
   aidErrTitle:"Kayıtlarınıza şu anda ulaşılamıyor",
   aidErrLead:"İnternet bağlantısı zayıf olduğu için daha önceki sınav ilerlemeniz sunucudan alınamadı. Önce <b>Tekrar dene</b>ye basın — bağlantı düzelince kaldığınız yerden devam edersiniz. Sadece hiç sınava girmediyseniz yeni kayıt açın; aksi halde geçmiş sonuçlarınız görünmeyebilir.",
   aidErrRetry:"🔄 Tekrar dene", aidErrFresh:"Yine de yeni kayıt aç",
+  ttsHint:"Soruyu sesli oku",
+  owedTitle:"Sizden beklenenler",
+  owedNone:"Tebrikler — görev tanımınızdaki tüm modülleri tamamladınız.",
+  owedSome:function(n,mins){return n+" modülünüz kaldı · tahmini "+mins+" dakika";},
+  owedNext:"Sıradaki:",
+  newJoiner:"Yeni katılan",
   syncModsBtn:"↻ Modül listesini göreve göre güncelle",
   syncModsNone:"Modül listesi görev tanımıyla zaten uyumlu.",
   syncModsDone:"Modül listesi güncellendi.",
@@ -2166,6 +2175,12 @@ var STR = {
   aidErrTitle:"Your records cannot be reached right now",
   aidErrLead:"Your earlier exam progress could not be loaded from the server because the connection is weak. Press <b>Try again</b> first — once the connection works you continue where you left off. Only open a new registration if you have never taken the exam; otherwise your past results may not appear.",
   aidErrRetry:"🔄 Try again", aidErrFresh:"Open a new registration anyway",
+  ttsHint:"Read the question aloud",
+  owedTitle:"What is expected from you",
+  owedNone:"Well done — you have completed every module required for your rank.",
+  owedSome:function(n,mins){return n+" module(s) left · about "+mins+" minutes";},
+  owedNext:"Next up:",
+  newJoiner:"New joiner",
   syncModsBtn:"↻ Sync modules with current rank",
   syncModsNone:"The module list already matches the rank requirement.",
   syncModsDone:"Module list updated.",
@@ -3096,8 +3111,26 @@ function renderPick(){
     (videoCardsArr.length ? '<div class="video-section">'+
       '<h3 class="pick-section-h">🎬 '+t.pickVideoSection+'<span class="psh-sub">'+videoCardsArr.length+' '+t.pickVideoCount+'</span></h3>'+
       '<div class="pickgrid">'+videoCardsArr.join("")+'</div></div>' : '');
+  /* Adayın kendi durumu tek bakışta: kaç modül kaldı, tahmini süre, sıradaki modül.
+     "Ne yapmam gerekiyor" sorusunu gemide tartışmaya gerek bırakmadan cevaplar. */
+  var owedHtml = (function(){
+    var left = mods.filter(function(m,i){ return !(state.results[i] && state.results[i].passed); });
+    if(!left.length){
+      return '<div class="note" style="border-left:3px solid var(--ok);margin-bottom:10px">'+
+        '<b>'+t.owedTitle+'</b><br>✅ '+t.owedNone+'</div>';
+    }
+    var totMin = left.reduce(function(a,m){ return a+estimateMinutes(m.code); },0);
+    var nx = left[0];
+    return '<div class="note" style="border-left:3px solid var(--gold-d);margin-bottom:10px">'+
+      '<b>'+t.owedTitle+'</b><br>'+esc(t.owedSome(left.length, totMin))+
+      '<div style="margin-top:5px;font-size:.86rem">'+t.owedNext+' <b>'+modIcon(nx.code)+' '+t.moduleOf(nx.code)+' — '+esc(nx.name)+'</b></div>'+
+      (left.length>1 ? '<div style="margin-top:4px;font-size:.8rem;color:var(--muted)">'+
+        esc(left.slice(1).map(function(m){ return m.code; }).join(", "))+'</div>' : '')+
+      '</div>';
+  })();
   app.innerHTML='<div class="card">'+
     '<button class="btn sm ghost" id="pkBack" style="margin-bottom:8px">'+t.pickBackToIntro+'</button>'+
+    owedHtml+
     '<div class="pick-top">'+
       '<div class="ring" style="--pct:'+pct+'"><b>'+pct+'%</b></div>'+
       '<div><h2 style="margin-bottom:2px">'+t.pickTitle+'</h2>'+
@@ -3234,7 +3267,8 @@ function renderModule(mi){
   ord.forEach(function(qIdx,pos){
     var q=m.questions[qIdx], letters=state.optOrder[mi][q.n], chosen=ans[q.n];
     html+='<div class="q" data-qn="'+q.n+'" id="q_'+q.n+'" role="radiogroup" aria-label="'+(pos+1)+'">'+
-      '<div class="qhead"><span class="qnum">'+(pos+1)+'.</span><span>'+esc(q.text)+'</span></div>';
+      '<div class="qhead"><span class="qnum">'+(pos+1)+'.</span><span>'+esc(q.text)+
+        '</span><button type="button" class="ttsbtn no-print" data-q="'+pos+'" title="'+esc(T().ttsHint)+'" aria-label="'+esc(T().ttsHint)+'">🔊</button></div>';
     letters.forEach(function(L){
       html+='<label class="opt'+(chosen===L?" sel":"")+'" data-l="'+L+'">'+
         '<input type="radio" name="m'+mi+'_q'+q.n+'" value="'+L+'"'+(chosen===L?" checked":"")+'>'+
@@ -3249,6 +3283,47 @@ function renderModule(mi){
 
   buildNav(mi); updateProgress(mi);
   if(CFG.timerOn) startCountdown(mi);
+  /* Sesli okuma: İngilizcesi/okuması zayıf mürettebat için soruyu ve şıkları tarayıcı okur.
+     Tamamen istemci tarafı (Web Speech API), ek dosya/servis gerekmez; desteklemeyen
+     tarayıcıda düğme gizlenir. */
+  app.querySelectorAll(".ttsbtn").forEach(function(b){
+    if(!("speechSynthesis" in window)){ b.style.display="none"; return; }
+    b.onclick=function(){
+      try{
+        var pos=+b.getAttribute("data-q");
+        var qIdx=ord[pos], q=m.questions[qIdx];
+        var parts=[q.text];
+        (state.optOrder[mi][q.n]||["a","b","c","d","e"]).forEach(function(L){
+          if(q.options[L]) parts.push(L.toUpperCase()+". "+q.options[L]);
+        });
+        if(window.speechSynthesis.speaking){ window.speechSynthesis.cancel(); b.textContent="🔊"; return; }
+        var u=new SpeechSynthesisUtterance(parts.join(". "));
+        u.lang = (lang==="en") ? "en-GB" : "tr-TR";
+        u.rate = 0.95;
+        /* Dile uygun ses varsa onu seç; yoksa sistemdeki ilk sesle oku (gemi bilgisayarlarında
+           Türkçe ses paketi kurulu olmayabilir — sessiz kalmaktansa okusun). */
+        try{
+          var vs=window.speechSynthesis.getVoices()||[];
+          var pref=vs.filter(function(v){ return v.lang && v.lang.toLowerCase().indexOf(lang==="en"?"en":"tr")===0; })[0];
+          if(pref) u.voice=pref; else if(vs.length) u.voice=vs[0];
+        }catch(e){}
+        u.onend=function(){ b.textContent="🔊"; };
+        u.onerror=function(ev){
+          b.textContent="🔊";
+          /* Tarayıcı sesi engellediyse (sayfaya hiç tıklanmadan istendiyse) sessizce
+             kaybolmasın; aday ne yapacağını bilsin. */
+          var code=(ev && ev.error) || "";
+          toast(code==="not-allowed"
+            ? (lang==="en" ? "The browser blocked audio. Click anywhere on the page, then press 🔊 again."
+                           : "Tarayıcı sesi engelledi. Sayfada bir yere tıklayıp 🔊 düğmesine tekrar basın.")
+            : (lang==="en" ? "Text-to-speech is not available on this device."
+                           : "Bu cihazda sesli okuma kullanılamıyor."), "warn");
+        };
+        b.textContent="⏹";
+        window.speechSynthesis.speak(u);
+      }catch(e){}
+    };
+  });
   var mBack=document.getElementById("modBack");
   if(mBack) mBack.onclick=function(){
     if(!confirm(t.modBackConfirm)) return;
@@ -4788,6 +4863,11 @@ function buildAuditSummaryReport(candidateRows, liveRecs){
     '<div class="note">Bu rapor İNKA Akademi Değerlendirme Sınavı sisteminden tek seferlik olarak üretilmiştir; canlı veriyle otomatik güncellenmez.</div>'+
     '</body></html>';
 }
+/* Rapor ayrı bir belge olduğu için QR kütüphanesinin kaynağını oraya kopyalarız
+   (sayfadaki <script id="qrlib"> etiketinden okunur — internet gerekmez). */
+function qrLibSource(){
+  try{ return document.getElementById("qrlib").textContent || ""; }catch(e){ return ""; }
+}
 function buildCrewHtmlReport(vessel, people, base){
   var rows=people.map(function(p,i){
     var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon);
@@ -4800,6 +4880,7 @@ function buildCrewHtmlReport(vessel, people, base){
       '<td class="c" style="font-family:Consolas,monospace">'+esc(p.password||"—")+'</td>'+
       '<td class="linkcell"><a href="'+esc(link)+'" target="_blank">'+esc(link)+'</a>'+
         '<button class="cp" data-link="'+esc(link)+'">Kopyala</button></td>'+
+      '<td class="c"><div class="qr" data-qr="'+esc(link)+'"></div></td>'+
     '</tr>';
   }).join("");
   return '<!doctype html><html lang="tr"><head><meta charset="utf-8">'+
@@ -4817,14 +4898,21 @@ function buildCrewHtmlReport(vessel, people, base){
     'button.cp{display:block;margin-top:4px;font-size:.72rem;padding:3px 8px;border:1px solid #1f4e79;background:#fff;color:#1f4e79;border-radius:5px;cursor:pointer}'+
     'button.cp:hover{background:#1f4e79;color:#fff}'+
     'tr:nth-child(even){background:#fafbfd}'+
+    '.qr{width:96px;height:96px;margin:0 auto}.qr img,.qr canvas{width:96px!important;height:96px!important}'+
+    '.qrcap{font-size:.62rem;color:#5b6b7c;text-align:center;margin-top:2px}'+
     '.note{margin-top:16px;font-size:.8rem;color:#5b6b7c;background:#fff8e6;border:1px solid #f0deA0;padding:10px 14px;border-radius:8px}'+
     '@media print{ button.cp{display:none} body{padding:0} }'+
     '</style></head><body>'+
     '<h1>'+esc(vessel||"Mürettebat")+' — Kişi Bazlı Sınav/Sunum Linkleri</h1>'+
     '<div class="sub">'+people.length+' personel · her kişi ya kendi kullanıcı adı+şifresiyle inkaacademy.github.io adresinden giriş yapabilir, ya da kendine özel linki açabilir — ikisi de aynı kayda gider. Kendi bilgilerini kontrol eder, beyanı onaylar ve sunum + sınavı KENDİSİ tamamlar.</div>'+
-    '<table><thead><tr><th>No</th><th>Ad Soyad</th><th>Rütbe</th><th>Seaman\'s Book No</th><th>Kullanıcı Adı</th><th>Şifre</th><th>Kişiye Özel Link</th></tr></thead>'+
+    '<table><thead><tr><th>No</th><th>Ad Soyad</th><th>Rütbe</th><th>Seaman\'s Book No</th><th>Kullanıcı Adı</th><th>Şifre</th><th>Kişiye Özel Link</th><th>QR</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table>'+
-    '<div class="note">⚠ Bu linkler sadece kayıt formunu ön dolduruyor — sınav sonucu/sertifika, linki AÇAN kişi gerçekten sunumu izleyip sınavı çözdüğünde oluşur. Otomatik "geçti" işareti yoktur.</div>'+
+    '<div class="note">📱 Mürettebat, kendi satırındaki QR kodu telefon kamerasıyla okutarak doğrudan kendi sınavına girebilir — uzun link yazmasına gerek yok.<br>⚠ Bu linkler sadece kayıt formunu ön dolduruyor — sınav sonucu/sertifika, linki AÇAN kişi gerçekten sunumu izleyip sınavı çözdüğünde oluşur. Otomatik "geçti" işareti yoktur.</div>'+
+    '<scr'+'ipt>'+qrLibSource()+'</scr'+'ipt>'+
+    '<scr'+'ipt>try{document.querySelectorAll(".qr").forEach(function(d){'+
+      'new QRCode(d,{text:d.getAttribute("data-qr"),width:220,height:220,correctLevel:QRCode.CorrectLevel.M});'+
+      'var c=document.createElement("div");c.className="qrcap";c.textContent="Telefonla okutun";d.parentNode.appendChild(c);'+
+    '});}catch(e){}</scr'+'ipt>'+
     '<scr'+'ipt>document.querySelectorAll(".cp").forEach(function(b){b.onclick=function(){var v=b.getAttribute("data-link");'+
     'navigator.clipboard&&navigator.clipboard.writeText(v).then(function(){b.textContent="Kopyalandı ✓";setTimeout(function(){b.textContent="Kopyala";},1500);});};});</scr'+'ipt>'+
     '</body></html>';
@@ -5466,7 +5554,16 @@ function renderAdmin(){
               (ow.missing.length ? '<details style="margin-top:3px"><summary style="cursor:pointer;font-size:.72rem;color:var(--bad)">'+ow.missing.length+' '+(lang==="en"?"owed":"eksik")+'</summary><div style="font-size:.7rem;line-height:1.35;margin-top:2px">'+
                  ow.missing.map(function(c){ return c+" — "+esc(bcN[c]?bcN[c].name:c); }).join("<br>")+'</div></details>' : '<div style="font-size:.72rem;color:var(--ok)">✓ '+(lang==="en"?"complete":"tamam")+'</div>')+'</div>'
             : '—';
-          return '<tr><td>'+esc(x.u.display_name||"")+'</td><td>'+esc(x.u.rank||"—")+'</td><td>'+pill(x.st)+'</td>'+
+          /* Yeni katılan: sign-on tarihi son 30 gün içinde ve hâlâ eksiği var → en riskli grup */
+          var njBadge = (function(){
+            var so=x.u.sign_on_date; if(!so) return "";
+            var d0=parseDMY(so); if(!d0) return "";
+            var days=Math.floor((Date.now()-d0.getTime())/86400000);
+            if(days<0 || days>30) return "";
+            if(!ow.missing.length) return "";
+            return ' <span style="font-size:.66rem;font-weight:700;padding:1px 6px;border-radius:99px;background:var(--warn-bg);color:var(--warn);white-space:nowrap">🆕 '+t.newJoiner+' · '+days+'g</span>';
+          })();
+          return '<tr><td>'+esc(x.u.display_name||"")+njBadge+'</td><td>'+esc(x.u.rank||"—")+'</td><td>'+pill(x.st)+'</td>'+
             '<td class="sc">'+(rec?(fin+" / "+tot):"—")+'</td><td>'+owedCell+'</td><td>'+(last?admFmtDate(last):"—")+'</td>'+
             '<td>'+(rec?'<button class="btn sm ghost fleet-open" data-aid="'+esc(rec.attemptId)+'">'+(lang==="en"?"Open":"Aç")+'</button>':'')+'</td></tr>';
         }).join("");
