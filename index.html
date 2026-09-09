@@ -3580,8 +3580,7 @@ function inkaCertHTML(rec, opts){
     '<div class="ci-body">'+
     '<div class="ci-that">This is to certify that</div>'+
     '<div class="ci-name-wrap"><span class="ci-name">'+esc(rec.name)+'</span></div>'+
-    ((rec.rank||rec.vessel)?'<div class="ci-that" style="font-size:.85rem">'+
-      [rec.rank,rec.vessel].filter(Boolean).map(esc).join(" &middot; ")+'</div>':'')+
+    (rec.rank?'<div class="ci-that" style="font-size:.85rem">'+esc(rec.rank)+'</div>':'')+
     '<div class="ci-course">'+esc(opts.courseTitle)+'</div>'+
     '<div class="ci-cch">Course Content</div>'+
     '<div class="ci-list">'+listHtml+'</div>'+
