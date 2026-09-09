@@ -535,7 +535,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 22:36";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 23:44";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -556,6 +556,7 @@ var savedCrewsOpen = false;
 var savedVesselsList = null;
 /* Gemi panosu + zor sorular kutuları (aynı nedenle renderAdmin() dışında). */
 var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "", healthBoxOpen = false, kitBoxOpen = false;
+var statsBoxOpen = false;
 var hardBoxOpen = false;
 var auditBoxOpen = false;
 /* Yönetici panelindeki sekme (Kayıtlar/Filo/Yönetim) — diğer kutu durumları gibi
@@ -4456,6 +4457,129 @@ function owedForPerson(rank, rec){
   var missing = req.filter(function(c){ return !done[c]; });
   return { required:req.length, done:req.length-missing.length, missing:missing };
 }
+/* ---- Eğitim Analizi: elde zaten duran kayıtlardan, eğitimin gerçekten işe yarayıp
+   yaramadığını gösteren dört tablo. Hepsi salt-okuma; hiçbir kaydı değiştirmez. ---- */
+function analyticsData(liveRecs){
+  var bc=byCode(lang);
+  var perMod={}, perVessel={}, fast=[], weak=[];
+  (liveRecs||[]).forEach(function(r){
+    if(r.cloudStatus==="deleted") return;
+    var v=(r.vessel||"—").trim()||"—";
+    var pv=perVessel[v]||(perVessel[v]={vessel:v, people:0, fin:0, passed:0});
+    pv.people++;
+    var failCount=0;
+    (r.mods||[]).forEach(function(m){
+      if(!m.end) return;
+      var pm=perMod[m.code]||(perMod[m.code]={code:m.code, name:(bc[m.code]||{}).name||"", att:0, passed:0, sum:0});
+      pm.att++; pm.sum+=(+m.correct||0); if(m.passed) pm.passed++;
+      pv.fin++; if(m.passed) pv.passed++;
+      if(!m.passed) failCount++;
+      /* Şüpheli hız: 20 soru için 60 saniyenin altı (soru başına 3 sn'den az) ya da
+         hiç cevap verilmeden gönderilmiş olması. Kopya değil, "okumadan geçti" işareti. */
+      var ms=+m.ms||0;
+      if(ms>0 && (ms<60000 || ((+m.correct||0)===0 && ms<20000))){
+        fast.push({name:r.name||"", vessel:v, rank:r.rank||"", code:m.code,
+                   sec:Math.round(ms/1000), correct:(+m.correct||0), passed:!!m.passed,
+                   blank:((+m.correct||0)===0)});
+      }
+    });
+    if(failCount>=3) weak.push({name:r.name||"", vessel:v, rank:r.rank||"", fails:failCount,
+                                codes:(r.mods||[]).filter(function(m){return m.end&&!m.passed;}).map(function(m){return m.code;})});
+  });
+  var mods=Object.keys(perMod).map(function(k){ return perMod[k]; })
+    .filter(function(x){ return x.att>=3; })
+    .sort(function(a,b){ return (a.passed/a.att)-(b.passed/b.att) || b.att-a.att; });
+  var vessels=Object.keys(perVessel).map(function(k){ return perVessel[k]; })
+    .sort(function(a,b){ return (b.fin?b.passed/b.fin:0)-(a.fin?a.passed/a.fin:0); });
+  fast.sort(function(a,b){ return a.sec-b.sec; });
+  weak.sort(function(a,b){ return b.fails-a.fails; });
+  return {mods:mods, vessels:vessels, fast:fast.slice(0,40), weak:weak.slice(0,40)};
+}
+function renderAnalytics(wrap, liveRecs){
+  var en = lang==="en";
+  var d = analyticsData(liveRecs);
+  function bar(pct, col){
+    return '<div style="height:6px;background:var(--line);border-radius:99px;overflow:hidden;min-width:70px">'+
+           '<div style="width:'+pct+'%;height:100%;background:'+col+'"></div></div>';
+  }
+  var out = "";
+
+  /* 1) Modül başarı oranları — en zayıf modül en üstte */
+  out += '<h4 style="margin:2px 0 6px">'+(en?"Module pass rates":"Modül başarı oranları")+
+         ' <span style="font-weight:400;color:var(--muted);font-size:.8rem">'+
+         (en?"weakest first · at least 3 attempts":"en zayıf en üstte · en az 3 deneme")+'</span></h4>';
+  if(!d.mods.length){ out += '<div class="note">'+(en?"Not enough data yet.":"Henüz yeterli veri yok.")+'</div>'; }
+  else {
+    out += '<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr>'+
+      '<th>'+(en?"Module":"Modül")+'</th><th>'+(en?"Attempts":"Deneme")+'</th>'+
+      '<th>'+(en?"Passed":"Geçen")+'</th><th>'+(en?"Pass rate":"Başarı")+'</th>'+
+      '<th>'+(en?"Avg. correct":"Ort. doğru")+'</th></tr></thead><tbody>'+
+      d.mods.map(function(m){
+        var pct=Math.round(100*m.passed/m.att), col=pct<60?"var(--bad)":(pct<80?"var(--warn)":"var(--ok)");
+        return '<tr><td style="white-space:nowrap">'+modIcon(m.code)+' '+esc(m.code)+
+          ' <span style="color:var(--muted);font-size:.76rem">'+esc(m.name)+'</span></td>'+
+          '<td class="sc">'+m.att+'</td><td class="sc">'+m.passed+'</td>'+
+          '<td><div style="display:flex;align-items:center;gap:6px"><b style="color:'+col+'">%'+pct+'</b>'+bar(pct,col)+'</div></td>'+
+          '<td class="sc">'+(m.sum/m.att).toFixed(1)+' / 20</td></tr>';
+      }).join("")+'</tbody></table></div>';
+  }
+
+  /* 2) Gemi karşılaştırması */
+  out += '<h4 style="margin:16px 0 6px">'+(en?"Vessel comparison":"Gemi karşılaştırması")+'</h4>';
+  if(!d.vessels.length){ out += '<div class="note">'+(en?"No data.":"Veri yok.")+'</div>'; }
+  else {
+    out += '<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr>'+
+      '<th>'+(en?"Vessel":"Gemi")+'</th><th>'+(en?"People":"Kişi")+'</th>'+
+      '<th>'+(en?"Modules finished":"Bitirilen modül")+'</th><th>'+(en?"Passed":"Geçen")+'</th>'+
+      '<th>'+(en?"Pass rate":"Başarı")+'</th></tr></thead><tbody>'+
+      d.vessels.map(function(v){
+        var pct=v.fin?Math.round(100*v.passed/v.fin):0, col=pct<60?"var(--bad)":(pct<80?"var(--warn)":"var(--ok)");
+        return '<tr><td>🚢 '+esc(v.vessel)+'</td><td class="sc">'+v.people+'</td>'+
+          '<td class="sc">'+v.fin+'</td><td class="sc">'+v.passed+'</td>'+
+          '<td><div style="display:flex;align-items:center;gap:6px"><b style="color:'+col+'">%'+pct+'</b>'+bar(pct,col)+'</div></td></tr>';
+      }).join("")+'</tbody></table></div>';
+  }
+
+  /* 3) Şüpheli hız */
+  out += '<h4 style="margin:16px 0 6px">'+(en?"Suspiciously fast":"Şüpheli hız")+
+         ' <span style="font-weight:400;color:var(--muted);font-size:.8rem">'+
+         (en?"under 60 s for 20 questions, or submitted blank":"20 soru 60 saniyenin altında, ya da boş gönderilmiş")+'</span></h4>';
+  if(!d.fast.length){ out += '<div class="note">'+(en?"Nothing flagged — good.":"İşaretlenen yok — iyi.")+'</div>'; }
+  else {
+    out += '<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr>'+
+      '<th>'+(en?"Candidate":"Aday")+'</th><th>'+(en?"Vessel":"Gemi")+'</th><th>'+(en?"Module":"Modül")+'</th>'+
+      '<th>'+(en?"Duration":"Süre")+'</th><th>'+(en?"Correct":"Doğru")+'</th><th></th></tr></thead><tbody>'+
+      d.fast.map(function(f){
+        return '<tr><td>'+esc(f.name)+' <span style="color:var(--muted);font-size:.74rem">'+esc(f.rank)+'</span></td>'+
+          '<td>'+esc(f.vessel)+'</td><td class="sc">'+esc(f.code)+'</td>'+
+          '<td class="sc" style="color:var(--bad);font-weight:700">'+f.sec+' sn</td>'+
+          '<td class="sc">'+f.correct+' / 20</td>'+
+          '<td>'+(f.blank?'<span class="pill fail">'+(en?"blank":"boş")+'</span>':(f.passed?'<span class="pill pass">'+(en?"passed":"geçti")+'</span>':''))+'</td></tr>';
+      }).join("")+'</tbody></table></div>';
+  }
+
+  /* 4) Yüz yüze eğitim önerilenler */
+  out += '<h4 style="margin:16px 0 6px">'+(en?"Suggested for face-to-face training":"Yüz yüze eğitim önerilenler")+
+         ' <span style="font-weight:400;color:var(--muted);font-size:.8rem">'+
+         (en?"3 or more failed modules":"3 veya daha fazla modülden kalmış")+'</span></h4>';
+  if(!d.weak.length){ out += '<div class="note">'+(en?"Nobody in this group.":"Bu grupta kimse yok.")+'</div>'; }
+  else {
+    out += '<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr>'+
+      '<th>'+(en?"Candidate":"Aday")+'</th><th>'+(en?"Vessel":"Gemi")+'</th>'+
+      '<th>'+(en?"Failed":"Kalınan")+'</th><th>'+(en?"Modules":"Modüller")+'</th></tr></thead><tbody>'+
+      d.weak.map(function(w){
+        return '<tr><td>'+esc(w.name)+' <span style="color:var(--muted);font-size:.74rem">'+esc(w.rank)+'</span></td>'+
+          '<td>'+esc(w.vessel)+'</td><td class="sc" style="color:var(--bad);font-weight:700">'+w.fails+'</td>'+
+          '<td style="font-size:.78rem">'+esc(w.codes.join(", "))+'</td></tr>';
+      }).join("")+'</tbody></table></div>';
+  }
+
+  out += '<div class="note" style="margin-top:12px;font-size:.8rem">'+
+    (en ? "Note: retake history is not stored — a module shows only its latest result. “Failed” means the latest attempt was below the pass mark."
+        : "Not: tekrar denemelerin geçmişi saklanmıyor — bir modülde yalnızca en son sonuç görünür. “Kalınan”, en son denemenin geçme notunun altında olması demektir.")+
+    '</div>';
+  wrap.innerHTML = out;
+}
 /* ---- Gemi Denetim Raporu: denetçiye/vetting'e verilebilecek, kendi kendine yeten HTML.
    Panodaki widget ekranda incelemek içindir; bu ise imzalanıp dosyalanabilir bir belge üretir. ---- */
 function buildVesselAuditReport(vessel, people){
@@ -4950,6 +5074,7 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aSavedCrews">🚢 '+(lang==="en"?"Saved crew lists":"Kayıtlı Gemi Listeleri")+'</button>'+
       '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
       '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
+      '<button class="btn sm ghost" id="aStats">📈 '+(lang==="en"?"Training analytics":"Eğitim Analizi")+'</button>'+
       '<button class="btn sm ghost" id="aMatrixTr">🗂 '+(lang==="en"?"Matrix (TR)":"Matrisi indir (TR)")+'</button>'+
       '<button class="btn sm ghost" id="aMatrixEn">🗂 '+(lang==="en"?"Matrix (EN)":"Matrisi indir (EN)")+'</button>'+
       '<button class="btn sm ghost" id="aExpiryCsv">⏳ '+(lang==="en"?"Expiring ≤90d (CSV)":"Süresi dolacaklar ≤90 gün (CSV)")+'</button>'+
@@ -4996,6 +5121,12 @@ function renderAdmin(){
       '<div class="btnrow" style="margin-top:0"><button class="btn sm" id="aFleetRefresh">🔄 '+(lang==="en"?"Refresh":"Yenile")+'</button>'+
       '<button class="btn sm gold" id="aAuditSummary">📊 '+(lang==="en"?"Audit summary (HTML)":"Denetim Özeti (HTML)")+'</button></div>'+
       '<div id="aFleetWrap" style="margin-top:8px"></div>'+
+    '</div>'+
+    '<div id="aStatsBox" style="display:'+(statsBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
+      '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
+        ? "Read-only analysis of the records you already have: which modules people fail, which vessel is behind, who rushed through a module, and who needs face-to-face training."
+        : "Elinizdeki kayıtların salt-okuma analizi: hangi modülde kalınıyor, hangi gemi geride, kim modülü okumadan geçti, kimin yüz yüze eğitime ihtiyacı var.")+'</div>'+
+      '<div id="aStatsWrap"></div>'+
     '</div>'+
     '<div id="aHardBox" style="display:'+(hardBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">'+
       '<div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">'+(lang==="en"
@@ -5435,6 +5566,14 @@ function renderAdmin(){
             '<td class="sc" style="font-weight:700;color:'+col+'">%'+pct+'</td><td class="sc">'+s.att+'</td>'+
             '<td style="font-size:.8rem;max-width:520px">'+esc(s.text||"")+' <span style="color:var(--ok);font-family:var(--font-mono);font-size:.74rem">('+(lang==="en"?"correct":"doğru")+': '+String(s.answer||"?").toUpperCase()+')</span></td></tr>';
         }).join("")+'</tbody></table></div>';
+    }
+    var sBox=document.getElementById("aStatsBox"), sWrap=document.getElementById("aStatsWrap"), sBtn=document.getElementById("aStats");
+    if(sBtn && sBox && sWrap){
+      sBtn.onclick=function(){
+        statsBoxOpen=!statsBoxOpen; sBox.style.display=statsBoxOpen?"block":"none";
+        if(statsBoxOpen) renderAnalytics(sWrap, liveRecs);
+      };
+      if(statsBoxOpen) renderAnalytics(sWrap, liveRecs);
     }
     document.getElementById("aHard").onclick=function(){
       hardBoxOpen=!hardBoxOpen; box.style.display=hardBoxOpen?"block":"none";
