@@ -535,7 +535,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 21:49";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 22:21";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1101,6 +1101,68 @@ function restoreRecord(r, then){
   }
   if(then) then();
 }
+/* Kaydin sayaclarini mods dizisinden yeniden hesaplar (tek kaynak). */
+function recomputeRecordTotals(rec){
+  var mods=rec.mods||[];
+  rec.codes=mods.map(function(m){ return m.code; });
+  rec.moduleCount=mods.length;
+  rec.passedCount=mods.filter(function(m){ return m.passed; }).length;
+  rec.allPass=(mods.length>0 && rec.passedCount===mods.length);
+  rec.total=mods.reduce(function(a,m){ return a+(+m.correct||0); },0);
+  rec.focusTotal=mods.reduce(function(a,m){ return a+(m.focus||0); },0);
+  rec.autoAny=mods.some(function(m){ return !!m.auto; });
+  return rec;
+}
+/* Degisen kaydi her yere yazar: yerel kayit defteri, bellek onbellegi ve bulut. */
+function persistRecordChange(rec2, action, detail, then){
+  logAdminAction(action, (rec2.name||"?")+" ("+(rec2.attemptId||"")+")", detail||"");
+  var loc=loadRecords(), i=loc.findIndex(function(x){ return x.attemptId===rec2.attemptId; });
+  if(i>=0){ loc[i]=rec2; saveRecords(loc); }
+  var c=(cloudCache||[]).filter(function(x){ return x.attemptId===rec2.attemptId; })[0];
+  if(c){ for(var k in rec2){ if(Object.prototype.hasOwnProperty.call(rec2,k)) c[k]=rec2[k]; } }
+  if(rec2.cloudStatus){
+    sbUpdate(rec2.attemptId, {
+      record: rec2, module_count: rec2.moduleCount, passed_count: rec2.passedCount,
+      all_pass: rec2.allPass, total: rec2.total
+    }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(ok){
+      if(!ok) toast(lang==="en" ? "⚠ The change did not reach the cloud." : "⚠ Değişiklik buluta yazılamadı.", "warn");
+      refreshCloud(function(){ if(then) then(rec2); });
+    });
+  } else if(then) then(rec2);
+}
+/* Kaydin modul listesini adayin BUGUNKU gorev tanimiyla karsilastirir.
+   Kural: bugun gerekli olanlar durur; gerekli olmayanlardan GECILMIS olanlar tarihce icin
+   korunur; gecilmemis+gereksiz olanlar kapsam disi kalir; hic bulunmayan gereklilikler
+   "girilmedi" olarak eklenir. Boylece atamalar degistiginde kayit kendiliginden duzelir. */
+function planRecordModuleSync(rec){
+  var req=modulesForRole(rec.rank||"");
+  var have=(rec.mods||[]).map(function(m){ return String(m.code); });
+  var drop=[], add=[];
+  (rec.mods||[]).forEach(function(m){
+    var c=String(m.code);
+    if(req.indexOf(c)<0 && !m.passed) drop.push(c);
+  });
+  req.forEach(function(c){ if(have.indexOf(c)<0) add.push(c); });
+  return {req:req, drop:drop, add:add, changed:(drop.length+add.length)>0};
+}
+function applyRecordModuleSync(rec, then){
+  var plan=planRecordModuleSync(rec);
+  if(!plan.changed){ if(then) then(rec, plan); return; }
+  var bc=byCode(lang);
+  var rec2=JSON.parse(JSON.stringify(rec));
+  rec2.mods=(rec2.mods||[]).filter(function(m){ return plan.drop.indexOf(String(m.code))<0; });
+  plan.add.forEach(function(c){
+    var m=bc[c];
+    rec2.mods.push({ code:c, name:(m&&m.name)||("Modül "+c), correct:0, passed:false, auto:false,
+                     focus:0, ms:null, start:null, end:null, given:{} });
+  });
+  rec2.mods.sort(function(a,b){ return (parseInt(a.code,10)||0)-(parseInt(b.code,10)||0); });
+  recomputeRecordTotals(rec2);
+  var det=[];
+  if(plan.add.length) det.push((lang==="en"?"added: ":"eklenen: ")+plan.add.join(","));
+  if(plan.drop.length) det.push((lang==="en"?"removed: ":"çıkarılan: ")+plan.drop.join(","));
+  persistRecordChange(rec2, "sync_record_modules", det.join(" | "), function(r2){ if(then) then(r2, plan); });
+}
 /* Bir modülü adayin kaydindan cikarir. Gerekce: atamalar degistiginde, kayit acilirken
    donmus modul listesinde adayin gorevine ait olmayan moduller kalabiliyor; bunlar bos
    gonderilmisse aday haksiz yere KALDI gorunuyor. Cikarma sonrasi gecme/kalma, toplam ve
@@ -1109,30 +1171,10 @@ function removeModuleFromRecord(rec, code, then){
   var src=(rec.mods||[]);
   var mods=src.filter(function(m){ return String(m.code)!==String(code); });
   if(mods.length===src.length){ if(then) then(rec); return; }
-  var passed=mods.filter(function(m){ return m.passed; }).length;
   var rec2=JSON.parse(JSON.stringify(rec));
   rec2.mods=mods;
-  rec2.codes=mods.map(function(m){ return m.code; });
-  rec2.moduleCount=mods.length;
-  rec2.passedCount=passed;
-  rec2.allPass=(mods.length>0 && passed===mods.length);
-  rec2.total=mods.reduce(function(a,m){ return a+(+m.correct||0); },0);
-  rec2.focusTotal=mods.reduce(function(a,m){ return a+(m.focus||0); },0);
-  rec2.autoAny=mods.some(function(m){ return !!m.auto; });
-  logAdminAction("remove_module_from_record", (rec.name||"?")+" ("+(rec.attemptId||"")+")", "modül "+code);
-  var loc=loadRecords(), i=loc.findIndex(function(x){ return x.attemptId===rec.attemptId; });
-  if(i>=0){ loc[i]=rec2; saveRecords(loc); }
-  var c=(cloudCache||[]).filter(function(x){ return x.attemptId===rec.attemptId; })[0];
-  if(c){ for(var k in rec2){ if(Object.prototype.hasOwnProperty.call(rec2,k)) c[k]=rec2[k]; } }
-  if(rec.cloudStatus){
-    sbUpdate(rec.attemptId, {
-      record: rec2, module_count: rec2.moduleCount, passed_count: rec2.passedCount,
-      all_pass: rec2.allPass, total: rec2.total
-    }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(ok){
-      if(!ok) toast(lang==="en" ? "⚠ The change did not reach the cloud." : "⚠ Değişiklik buluta yazılamadı.", "warn");
-      refreshCloud(function(){ if(then) then(rec2); });
-    });
-  } else if(then) then(rec2);
+  recomputeRecordTotals(rec2);
+  persistRecordChange(rec2, "remove_module_from_record", "modül "+code, then);
 }
 function patchRecord(r, patch, then){
   (function(){
@@ -1880,6 +1922,13 @@ var STR = {
   aidErrTitle:"Kayıtlarınıza şu anda ulaşılamıyor",
   aidErrLead:"İnternet bağlantısı zayıf olduğu için daha önceki sınav ilerlemeniz sunucudan alınamadı. Önce <b>Tekrar dene</b>ye basın — bağlantı düzelince kaldığınız yerden devam edersiniz. Sadece hiç sınava girmediyseniz yeni kayıt açın; aksi halde geçmiş sonuçlarınız görünmeyebilir.",
   aidErrRetry:"🔄 Tekrar dene", aidErrFresh:"Yine de yeni kayıt aç",
+  syncModsBtn:"↻ Modül listesini göreve göre güncelle",
+  syncModsNone:"Modül listesi görev tanımıyla zaten uyumlu.",
+  syncModsDone:"Modül listesi güncellendi.",
+  syncModsHead:"Görev tanımı değişmiş",
+  syncModsInfo:function(a,d){var p=[];if(a)p.push(a+" modül eklenmeli");if(d)p.push(d+" modül kapsam dışı");return "Bu adayın kaydı bugünkü rütbe atamasıyla uyuşmuyor: "+p.join(", ")+". Geçilmiş modüller her durumda korunur.";},
+  syncModsBulk:function(n){return "↻ Seçili "+n+" kaydı göreve göre güncelle";},
+  syncModsBulkDone:function(n){return n+" kayıt güncellendi.";},
   admRmMod:"Bu modülü kayıttan çıkar",
   admRmModConfirm:function(c){return "Modül "+c+" bu adayın kaydından çıkarılsın mı? Bu işlem, adayın görev tanımında artık bulunmayan bir modülü kapsam dışı bırakmak içindir. Geçme/kalma durumu yeniden hesaplanır ve işlem geçmişine kaydedilir.";},
   admRmModDone:"Modül kayıttan çıkarıldı.",
@@ -2116,6 +2165,13 @@ var STR = {
   aidErrTitle:"Your records cannot be reached right now",
   aidErrLead:"Your earlier exam progress could not be loaded from the server because the connection is weak. Press <b>Try again</b> first — once the connection works you continue where you left off. Only open a new registration if you have never taken the exam; otherwise your past results may not appear.",
   aidErrRetry:"🔄 Try again", aidErrFresh:"Open a new registration anyway",
+  syncModsBtn:"↻ Sync modules with current rank",
+  syncModsNone:"The module list already matches the rank requirement.",
+  syncModsDone:"Module list updated.",
+  syncModsHead:"Rank requirement has changed",
+  syncModsInfo:function(a,d){var p=[];if(a)p.push(a+" module(s) to add");if(d)p.push(d+" module(s) out of scope");return "This record does not match the current rank assignment: "+p.join(", ")+". Passed modules are always kept.";},
+  syncModsBulk:function(n){return "↻ Sync "+n+" selected record(s) with rank";},
+  syncModsBulkDone:function(n){return n+" record(s) updated.";},
   admRmMod:"Remove this module from the record",
   admRmModConfirm:function(c){return "Remove module "+c+" from this candidate's record? Use this when a module is no longer part of the candidate's rank requirement. Pass/fail is recalculated and the action is written to the activity log.";},
   admRmModDone:"Module removed from the record.",
@@ -4763,6 +4819,7 @@ function renderAdmin(){
         (adminFilter==="del"
           ? '<button class="btn sm" id="aRestore">↩ '+t.admRestoreSel(selCount)+'</button>'
           : '<button class="btn sm" id="aDelSel" style="background:var(--bad)">🗑 '+t.admDelSel(selCount)+'</button>')+
+        '<button class="btn sm ghost" id="aSyncSel">'+t.syncModsBulk(selCount)+'</button>'+
         '<button class="btn sm ghost" id="aSelNone">'+t.admSelClear+'</button>'+
       '</div>'
     : '';
@@ -4962,6 +5019,17 @@ function renderAdmin(){
     selAll.onchange=function(){ shown.forEach(function(r){ if(selAll.checked) adminSel[r.attemptId]=1; else delete adminSel[r.attemptId]; }); renderAdmin(); };
   }
   var aSelNone=document.getElementById("aSelNone"); if(aSelNone) aSelNone.onclick=function(){ adminSel={}; renderAdmin(); };
+  var aSyncSel=document.getElementById("aSyncSel");
+  if(aSyncSel) aSyncSel.onclick=function(){
+    var picked=recs.filter(function(r){ return adminSel[r.attemptId] && planRecordModuleSync(r).changed; });
+    if(!picked.length){ toast(t.syncModsNone, "ok"); return; }
+    if(!confirm(t.syncModsBulk(picked.length))) return;
+    aSyncSel.textContent="…"; aSyncSel.disabled=true;
+    var left=picked.length, done=0;
+    picked.forEach(function(r){
+      applyRecordModuleSync(r, function(){ done++; if(--left<=0){ toast(t.syncModsBulkDone(done), "ok"); adminSel={}; renderAdmin(); } });
+    });
+  };
   var aDelSel=document.getElementById("aDelSel");
   if(aDelSel) aDelSel.onclick=function(){
     var picked=recs.filter(function(r){ return adminSel[r.attemptId]; });
@@ -5317,7 +5385,8 @@ function renderAdmin(){
             edit_admin_user:["✏️",lang==="en"?"Edited admin":"Yönetici düzenlendi"],
             delete_admin_user:["🗑",lang==="en"?"Deleted admin":"Yönetici silindi"],
             reset_candidate_password:["🔄",lang==="en"?"Reset password":"Şifre yenilendi"],
-            remove_module_from_record:["✕",lang==="en"?"Removed module from record":"Modül kayıttan çıkarıldı"] };
+            remove_module_from_record:["✕",lang==="en"?"Removed module from record":"Modül kayıttan çıkarıldı"],
+            sync_record_modules:["↻",lang==="en"?"Synced modules with rank":"Modül listesi göreve göre güncellendi"] };
           wrap.innerHTML='<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr><th>'+(lang==="en"?"When":"Ne zaman")+'</th><th>'+(lang==="en"?"Admin":"Yönetici")+'</th><th>'+(lang==="en"?"Action":"İşlem")+'</th><th>'+(lang==="en"?"Target":"Hedef")+'</th><th>'+(lang==="en"?"Detail":"Detay")+'</th></tr></thead><tbody>'+
             rows.map(function(row){
               var a=ACT[row.action]||["•",row.action];
@@ -5707,7 +5776,17 @@ function renderAdminDetail(rec){
       '<button class="btn ghost sm" id="adBack">'+t.admDetailBack+'</button>'+
       (anyPass?'<button class="btn gold sm" id="adCerts">'+t.viewCerts+'</button>':'')+
       '<button class="btn ghost sm" id="adEdit">'+t.admEdit+'</button>'+
+      '<button class="btn ghost sm" id="adSyncMods">'+t.syncModsBtn+'</button>'+
       '<button class="btn ghost sm" id="adPrint">'+t.recPrint+'</button></div>'+
+    (function(){
+      var pl=planRecordModuleSync(rec);
+      if(!pl.changed) return '';
+      return '<div class="note warn" style="margin-top:10px"><b>'+t.syncModsHead+'</b><br>'+
+        esc(t.syncModsInfo(pl.add.length, pl.drop.length))+
+        (pl.add.length?'<br><span style="font-size:.85em">'+(lang==="en"?"To add":"Eklenecek")+': '+esc(pl.add.join(", "))+'</span>':'')+
+        (pl.drop.length?'<br><span style="font-size:.85em">'+(lang==="en"?"Out of scope":"Kapsam dışı")+': '+esc(pl.drop.join(", "))+'</span>':'')+
+        '</div>';
+    })()+
     '<div id="adEditBox" style="display:none"></div>'+
     '<h2 style="margin-top:14px" id="adName">'+esc(rec.name||"—")+'</h2>'+
     '<p class="lead" id="adMeta">'+[rec.rank,rec.vessel,rec.sicil?t.recFields.sicil+": "+rec.sicil:""].filter(Boolean).map(esc).join(" · ")+'</p>'+
@@ -5725,6 +5804,17 @@ function renderAdminDetail(rec){
    answersBlock(rec, t)+
    '</div>';
   document.getElementById("adBack").onclick=renderAdmin;
+  var adSync=document.getElementById("adSyncMods");
+  if(adSync) adSync.onclick=function(){
+    var pl=planRecordModuleSync(rec);
+    if(!pl.changed){ toast(T().syncModsNone, "ok"); return; }
+    if(!confirm(T().syncModsInfo(pl.add.length, pl.drop.length))) return;
+    adSync.disabled=true; adSync.textContent="…";
+    applyRecordModuleSync(rec, function(rec2){
+      toast(T().syncModsDone, "ok");
+      renderAdminDetail(rec2); window.scrollTo(0,0);
+    });
+  };
   app.querySelectorAll(".admRmMod").forEach(function(b){
     b.onclick=function(){
       var code=b.getAttribute("data-mc");
