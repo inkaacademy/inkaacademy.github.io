@@ -535,7 +535,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 21:17";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 21:34";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1100,6 +1100,39 @@ function restoreRecord(r, then){
     });
   }
   if(then) then();
+}
+/* Bir modülü adayin kaydindan cikarir. Gerekce: atamalar degistiginde, kayit acilirken
+   donmus modul listesinde adayin gorevine ait olmayan moduller kalabiliyor; bunlar bos
+   gonderilmisse aday haksiz yere KALDI gorunuyor. Cikarma sonrasi gecme/kalma, toplam ve
+   sayaclar yeniden hesaplanir; hem yerel hem bulut kopyasi guncellenir, islem loglanir. */
+function removeModuleFromRecord(rec, code, then){
+  var src=(rec.mods||[]);
+  var mods=src.filter(function(m){ return String(m.code)!==String(code); });
+  if(mods.length===src.length){ if(then) then(rec); return; }
+  var passed=mods.filter(function(m){ return m.passed; }).length;
+  var rec2=JSON.parse(JSON.stringify(rec));
+  rec2.mods=mods;
+  rec2.codes=mods.map(function(m){ return m.code; });
+  rec2.moduleCount=mods.length;
+  rec2.passedCount=passed;
+  rec2.allPass=(mods.length>0 && passed===mods.length);
+  rec2.total=mods.reduce(function(a,m){ return a+(+m.correct||0); },0);
+  rec2.focusTotal=mods.reduce(function(a,m){ return a+(m.focus||0); },0);
+  rec2.autoAny=mods.some(function(m){ return !!m.auto; });
+  logAdminAction("remove_module_from_record", (rec.name||"?")+" ("+(rec.attemptId||"")+")", "modül "+code);
+  var loc=loadRecords(), i=loc.findIndex(function(x){ return x.attemptId===rec.attemptId; });
+  if(i>=0){ loc[i]=rec2; saveRecords(loc); }
+  var c=(cloudCache||[]).filter(function(x){ return x.attemptId===rec.attemptId; })[0];
+  if(c){ for(var k in rec2){ if(Object.prototype.hasOwnProperty.call(rec2,k)) c[k]=rec2[k]; } }
+  if(rec.cloudStatus){
+    sbUpdate(rec.attemptId, {
+      record: rec2, module_count: rec2.moduleCount, passed_count: rec2.passedCount,
+      all_pass: rec2.allPass, total: rec2.total
+    }, sbAdminHeaders({"Prefer":"return=minimal"})).then(function(ok){
+      if(!ok) toast(lang==="en" ? "⚠ The change did not reach the cloud." : "⚠ Değişiklik buluta yazılamadı.", "warn");
+      refreshCloud(function(){ if(then) then(rec2); });
+    });
+  } else if(then) then(rec2);
 }
 function patchRecord(r, patch, then){
   (function(){
@@ -1845,6 +1878,9 @@ var STR = {
   aidErrTitle:"Kayıtlarınıza şu anda ulaşılamıyor",
   aidErrLead:"İnternet bağlantısı zayıf olduğu için daha önceki sınav ilerlemeniz sunucudan alınamadı. Önce <b>Tekrar dene</b>ye basın — bağlantı düzelince kaldığınız yerden devam edersiniz. Sadece hiç sınava girmediyseniz yeni kayıt açın; aksi halde geçmiş sonuçlarınız görünmeyebilir.",
   aidErrRetry:"🔄 Tekrar dene", aidErrFresh:"Yine de yeni kayıt aç",
+  admRmMod:"Bu modülü kayıttan çıkar",
+  admRmModConfirm:function(c){return "Modül "+c+" bu adayın kaydından çıkarılsın mı? Bu işlem, adayın görev tanımında artık bulunmayan bir modülü kapsam dışı bırakmak içindir. Geçme/kalma durumu yeniden hesaplanır ve işlem geçmişine kaydedilir.";},
+  admRmModDone:"Modül kayıttan çıkarıldı.",
   refresherBtn:"🔄 Bilgi Tazeleme", refresherTitle:"Bilgi Tazeleme",
   refresherLead:"Sertifikanız geçerli — bu, resmi bir sınav değildir, sadece bilgilerinizi tazelemeniz içindir. Sonunda sertifika verilmez, sadece Geçti/Kaldı gösterilir.",
   refresherPick:"Tekrar etmek istediğiniz modülleri seçin:", refresherStart:"Başla", refresherCancel:"Vazgeç",
@@ -2076,6 +2112,9 @@ var STR = {
   aidErrTitle:"Your records cannot be reached right now",
   aidErrLead:"Your earlier exam progress could not be loaded from the server because the connection is weak. Press <b>Try again</b> first — once the connection works you continue where you left off. Only open a new registration if you have never taken the exam; otherwise your past results may not appear.",
   aidErrRetry:"🔄 Try again", aidErrFresh:"Open a new registration anyway",
+  admRmMod:"Remove this module from the record",
+  admRmModConfirm:function(c){return "Remove module "+c+" from this candidate's record? Use this when a module is no longer part of the candidate's rank requirement. Pass/fail is recalculated and the action is written to the activity log.";},
+  admRmModDone:"Module removed from the record.",
   refresherBtn:"🔄 Refresher Practice", refresherTitle:"Refresher Practice",
   refresherLead:"Your certificate is valid — this is not a formal exam, just a way to refresh your knowledge. No certificate is issued at the end, only Pass/Fail.",
   refresherPick:"Choose which modules to review:", refresherStart:"Start", refresherCancel:"Cancel",
@@ -5265,7 +5304,8 @@ function renderAdmin(){
             add_admin_user:["➕",lang==="en"?"Added admin":"Yönetici eklendi"],
             edit_admin_user:["✏️",lang==="en"?"Edited admin":"Yönetici düzenlendi"],
             delete_admin_user:["🗑",lang==="en"?"Deleted admin":"Yönetici silindi"],
-            reset_candidate_password:["🔄",lang==="en"?"Reset password":"Şifre yenilendi"] };
+            reset_candidate_password:["🔄",lang==="en"?"Reset password":"Şifre yenilendi"],
+            remove_module_from_record:["✕",lang==="en"?"Removed module from record":"Modül kayıttan çıkarıldı"] };
           wrap.innerHTML='<div style="overflow-x:auto"><table class="rec crew-table"><thead><tr><th>'+(lang==="en"?"When":"Ne zaman")+'</th><th>'+(lang==="en"?"Admin":"Yönetici")+'</th><th>'+(lang==="en"?"Action":"İşlem")+'</th><th>'+(lang==="en"?"Target":"Hedef")+'</th><th>'+(lang==="en"?"Detail":"Detay")+'</th></tr></thead><tbody>'+
             rows.map(function(row){
               var a=ACT[row.action]||["•",row.action];
@@ -5646,7 +5686,8 @@ function renderAdminDetail(rec){
     return '<tr><td class="mname">'+m.code+' — '+esc(m.name||"")+'</td>'+
       '<td>'+m.correct+' / 20</td>'+
       '<td><span class="pill '+(m.passed?"pass":"fail")+'">'+(m.passed?t.pPass:t.pFail)+'</span></td>'+
-      '<td>'+admDur(m.ms)+'</td><td>'+(m.focus||0)+'</td><td>'+(m.auto?t.yes:t.no)+'</td></tr>';
+      '<td>'+admDur(m.ms)+'</td><td>'+(m.focus||0)+'</td><td>'+(m.auto?t.yes:t.no)+'</td>'+
+      '<td><button class="btn sm ghost admRmMod" data-mc="'+esc(m.code)+'" title="'+esc(t.admRmMod)+'" style="padding:2px 8px">✕</button></td></tr>';
   }).join("");
   var anyPass=(rec.mods||[]).some(function(m){return m.passed;});
   app.innerHTML='<div class="card">'+
@@ -5664,14 +5705,25 @@ function renderAdminDetail(rec){
       (rec.allPass?t.allPass(rec.passedCount,rec.moduleCount):t.somePass(rec.passedCount,rec.moduleCount))+'</span>'+
     '<div style="overflow-x:auto;margin-top:14px"><table class="rec"><thead><tr>'+
       '<th style="text-align:left">'+t.recTh.mod+'</th><th>'+t.recTh.correct+'</th><th>'+t.recTh.status+'</th>'+
-      '<th>'+t.recTh.dur+'</th><th>'+t.recTh.focus+'</th><th>'+t.recTh.auto+'</th></tr></thead><tbody>'+mrows+
+      '<th>'+t.recTh.dur+'</th><th>'+t.recTh.focus+'</th><th>'+t.recTh.auto+'</th><th></th></tr></thead><tbody>'+mrows+
       '<tr><td class="mname tot">'+t.recTotal+'</td><td class="tot">'+(rec.total!=null?rec.total:"—")+' / '+((rec.moduleCount||14)*20)+'</td>'+
       '<td class="tot">'+(rec.passedCount!=null?rec.passedCount:"—")+' / '+rec.moduleCount+'</td><td class="tot">'+admDur(rec.durationMs)+'</td>'+
-      '<td class="tot">'+(rec.focusTotal||0)+'</td><td class="tot">'+(rec.autoAny?"⚠":"")+'</td></tr>'+
+      '<td class="tot">'+(rec.focusTotal||0)+'</td><td class="tot">'+(rec.autoAny?"⚠":"")+'</td><td class="tot"></td></tr>'+
       '</tbody></table></div>'+
    answersBlock(rec, t)+
    '</div>';
   document.getElementById("adBack").onclick=renderAdmin;
+  app.querySelectorAll(".admRmMod").forEach(function(b){
+    b.onclick=function(){
+      var code=b.getAttribute("data-mc");
+      if(!confirm(T().admRmModConfirm(code))) return;
+      b.disabled=true;
+      removeModuleFromRecord(rec, code, function(rec2){
+        toast(T().admRmModDone, "ok");
+        renderAdminDetail(rec2); window.scrollTo(0,0);
+      });
+    };
+  });
   var adc=document.getElementById("adCerts");
   if(adc) adc.onclick=function(){ openCerts(rec, true); window.scrollTo(0,0); };
   document.getElementById("adPrint").onclick=function(){ renderRecordFromRec(rec); setTimeout(function(){ doPrint("record"); },60); };
