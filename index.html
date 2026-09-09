@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 19:22";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 20:29";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -5777,7 +5777,39 @@ function render(){
 try{ var sl=localStorage.getItem(LS_LANG); if(sl==="en"||sl==="tr") lang=sl; }catch(e){}
 var qp=null; try{ qp=new URLSearchParams(location.search); }catch(e){}
 applyChrome();
+/* ---- Sürüm kontrolü (gemide "eski sürüm önbellekte takılı kaldı" sorunu için) ----
+   GitHub Pages index.html'i max-age=600 ile verdiği için, bir düzeltme yayınlandıktan sonra
+   gemideki tarayıcı saatlerce ESKİ dosyayı çalıştırabiliyor; aday düzeltilmiş davranışı
+   göremiyordu. Açılışta yayındaki version.json (önbelleksiz, ~50 bayt) okunur; damga bu
+   sayfanınkinden farklıysa sayfa TEK SEFER, önbelleği by-pass eden bir parametreyle yenilenir.
+   Sınav parametreleri (aid/name/rank...) korunur. Yenileme sonrası hâlâ eskiyse döngüye
+   girilmez; kullanıcıya elle yenilemesi söylenir. */
+var SS_VER_RELOAD = "gsm_ver_reload_v1";
+function checkAppVersion(){
+  if(!(location.protocol==="http:"||location.protocol==="https:")) return;
+  try{
+    fetch("version.json?t="+Date.now(), {cache:"no-store"})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(v){
+        if(!v || !v.stamp || v.stamp===BUILD_STAMP) return;
+        var tried=""; try{ tried=sessionStorage.getItem(SS_VER_RELOAD)||""; }catch(e){}
+        if(tried===v.stamp){
+          toast(lang==="en"
+            ? "A newer version is published. Please refresh with Ctrl+F5."
+            : "Yeni bir sürüm yayınlandı. Lütfen Ctrl+F5 ile sayfayı yenileyin.", "warn", true);
+          return;
+        }
+        try{ sessionStorage.setItem(SS_VER_RELOAD, v.stamp); }catch(e){}
+        try{
+          var u=new URL(location.href);
+          u.searchParams.set("_v", String(v.stamp).replace(/[^\w.-]+/g,""));
+          location.replace(u.toString());
+        }catch(e){}
+      }).catch(function(){});
+  }catch(e){}
+}
 pullCloudSettings();
+checkAppVersion();
 try{ console.log("İNKA Akademi build", BUILD_STAMP); }catch(e){}
 (function(){ var b=document.getElementById("cloudSyncBadge"); if(b) b.onclick=showSyncDetail; })();   /* D3 */
 /* Bekleyen ya da hiç doğrulanmamış bir bulut yazması varken, aday ekranı değiştirmese bile (ör. bitiş
