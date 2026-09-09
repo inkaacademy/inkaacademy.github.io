@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 18:22";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 19:10";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1829,6 +1829,9 @@ var STR = {
   failNote:function(codes){return "Sertifika için tüm modülleri geçmeniz gerekir. Kalınan modüller: <b>"+codes+"</b>";},
   retake:"Kalınan modülleri tekrar et", startOver:"Baştan başla",
   restartConfirm:"Yeni sınav başlatılsın mı? Mevcut oturum silinecek.",
+  aidErrTitle:"Kayıtlarınıza şu anda ulaşılamıyor",
+  aidErrLead:"İnternet bağlantısı zayıf olduğu için daha önceki sınav ilerlemeniz sunucudan alınamadı. Önce <b>Tekrar dene</b>ye basın — bağlantı düzelince kaldığınız yerden devam edersiniz. Sadece hiç sınava girmediyseniz yeni kayıt açın; aksi halde geçmiş sonuçlarınız görünmeyebilir.",
+  aidErrRetry:"🔄 Tekrar dene", aidErrFresh:"Yine de yeni kayıt aç",
   refresherBtn:"🔄 Bilgi Tazeleme", refresherTitle:"Bilgi Tazeleme",
   refresherLead:"Sertifikanız geçerli — bu, resmi bir sınav değildir, sadece bilgilerinizi tazelemeniz içindir. Sonunda sertifika verilmez, sadece Geçti/Kaldı gösterilir.",
   refresherPick:"Tekrar etmek istediğiniz modülleri seçin:", refresherStart:"Başla", refresherCancel:"Vazgeç",
@@ -2057,6 +2060,9 @@ var STR = {
   failNote:function(codes){return "You must pass all modules to receive the certificate. Failed modules: <b>"+codes+"</b>";},
   retake:"Retake failed modules", startOver:"Start over",
   restartConfirm:"Start a new exam? The current session will be deleted.",
+  aidErrTitle:"Your records cannot be reached right now",
+  aidErrLead:"Your earlier exam progress could not be loaded from the server because the connection is weak. Press <b>Try again</b> first — once the connection works you continue where you left off. Only open a new registration if you have never taken the exam; otherwise your past results may not appear.",
+  aidErrRetry:"🔄 Try again", aidErrFresh:"Open a new registration anyway",
   refresherBtn:"🔄 Refresher Practice", refresherTitle:"Refresher Practice",
   refresherLead:"Your certificate is valid — this is not a formal exam, just a way to refresh your knowledge. No certificate is issued at the end, only Pass/Fail.",
   refresherPick:"Choose which modules to review:", refresherStart:"Start", refresherCancel:"Cancel",
@@ -2697,18 +2703,50 @@ function stateFromCloudRecord(row){
     };
   }catch(e){ return null; }
 }
+/* cb(state, failed): failed=true SADECE buluta ulaşılamadığında (ağ/zaman aşımı/HTTP hatası).
+   "Ulaşılamadı" ile "kayıt yok" ayrımı kritik: gemide internet koptuğunda, sınavını çoktan
+   bitirmiş bir adayı sıfırdan kayıt ekranına düşürüp yeniden sınava sokmamak için. */
 function fetchExamStateByAid(aid, cb){
-  if(!aid || !(location.protocol==="http:"||location.protocol==="https:")){ cb(null); return; }
+  if(!aid || !(location.protocol==="http:"||location.protocol==="https:")){ cb(null,false); return; }
   try{
     sbFetch(SB_URL+"/rest/v1/rpc/get_exam_state", {
       method:"POST", headers:sbAnonHeaders(), body:JSON.stringify({p_attempt_id:aid})
-    }).then(function(r){ return r.ok ? r.json() : null; }).then(function(rows){
+    }).then(function(r){
+      if(!r.ok) return {__failed:true};
+      return r.json();
+    }).then(function(rows){
+      if(rows && rows.__failed){ cb(null,true); return; }
       var row = rows && rows.length ? rows[0] : null;
-      cb(row ? stateFromCloudRecord(row) : null);
-    }).catch(function(){ cb(null); });
-  }catch(e){ cb(null); }
+      cb(row ? stateFromCloudRecord(row) : null, false);
+    }).catch(function(){ cb(null,true); });
+  }catch(e){ cb(null,true); }
 }
 
+/* Kişiye özel link açıldı ama bulut kaydı ALINAMADI (ağ hatası). Burada sessizce boş kayıt
+   formuna düşmek tehlikeli: sınavını bitirmiş aday sıfırdan başlayabiliyor. Bu yüzden net bir
+   uyarı + "Tekrar dene" gösterilir; yeni kayıt açmak bilinçli bir tercih olarak bırakılır. */
+function renderAidLoadError(aidParam, prefill){
+  stopTimer(); certEl.style.display="none"; recEl.style.display="none";
+  var t=T();
+  app.innerHTML='<div class="card">'+
+    '<h2>⚠️ '+t.aidErrTitle+'</h2>'+
+    '<p class="lead">'+t.aidErrLead+'</p>'+
+    (prefill && prefill.name ? '<p style="margin:.4rem 0 0"><b>'+esc(prefill.name)+'</b>'+(prefill.rank?' · '+esc(prefill.rank):'')+'</p>' : '')+
+    '<div class="btnrow" style="margin-top:16px">'+
+      '<button class="btn gold" id="aidRetry">'+t.aidErrRetry+'</button>'+
+      '<button class="btn ghost" id="aidFresh">'+t.aidErrFresh+'</button>'+
+    '</div></div>';
+  document.getElementById("aidRetry").onclick=function(){
+    var b=this; b.disabled=true; b.textContent="…";
+    fetchExamStateByAid(aidParam, function(cloudState, failed){
+      var best=pickFullerState(localStateFor(aidParam), cloudState);
+      if(best){ state=best; save(); render(); window.scrollTo(0,0); return; }
+      if(failed){ b.disabled=false; b.textContent=T().aidErrRetry; toast(T().aidErrTitle, "bad"); return; }
+      renderIntro(null, prefill); window.scrollTo(0,0);
+    });
+  };
+  document.getElementById("aidFresh").onclick=function(){ renderIntro(null, prefill); window.scrollTo(0,0); };
+}
 /* ---------------- INTRO ---------------- */
 function renderIntro(resumable, prefill){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
@@ -5759,7 +5797,11 @@ function bootNormal(){
      kişiye özel bir linki (prefill/aid) OLMAYAN çıplak bir ziyaretin doğrudan boş kayıt
      formuna düşmesini engellemektir: böyle bir ziyaretçi önce giriş yapmak zorunda kalır
      (admin hesabıyla panele, aday hesabıyla kendi sınavına yönlendirilir). */
-  if(saved && saved.phase){ renderIntro(saved, prefill); }
+  /* Link kişiye özelse (aid var), bu cihazdaki BAŞKA bir kimliğe/denemeye ait yarım kayıt
+     "kaldığın yerden devam et" diye sunulmaz. Aksi halde (gemide yaşandı) sınavını çoktan
+     bitirmiş bir aday, aynı bilgisayarda duran eski/çöp bir denemenin içine düşüyordu. */
+  var mismatch = !!(prefill && prefill.aid && saved && saved.attemptId && saved.attemptId!==prefill.aid);
+  if(saved && saved.phase && !mismatch){ renderIntro(saved, prefill); }
   else if(prefill){ renderIntro(null, prefill); }
   else { renderLoginGate(); }
 }
@@ -5782,9 +5824,15 @@ if(qp && qp.has("verify")){
       if(stateDoneCount(cloudState) > stateDoneCount(state)){ state=cloudState; save(); render(); }
     });
   } else {
-    fetchExamStateByAid(aidParam, function(cloudState){
+    fetchExamStateByAid(aidParam, function(cloudState, failed){
       var best=pickFullerState(localStateFor(aidParam), cloudState);
       if(best){ state=best; save(); render(); window.scrollTo(0,0); }
+      else if(failed){
+        /* Buluta ulaşılamadı: bu cihazdaki alakasız eski kayda düşürmek yerine uyar. */
+        var pf={name:qp.get("name")||"", rank:qp.get("rank")||"", vessel:qp.get("vessel")||"",
+                sicil:qp.get("sicil")||"", aid:aidParam, signOn:qp.get("signon")||""};
+        renderAidLoadError(aidParam, pf);
+      }
       else { bootNormal(); }
     });
   }
