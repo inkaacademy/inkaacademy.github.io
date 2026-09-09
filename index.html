@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 17:25";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 17:54";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -4933,8 +4933,12 @@ function renderAdmin(){
       /* 3) yönetici ayar-yazma yolu */
       try{
         var un=""; try{ un=localStorage.getItem(LS_ADMIN_USER)||""; }catch(e){}
-        if(adminAuthHash && un){ var okS=await pushCloudSettingsPatch({}); mark(okS===true, L("Yönetici: ayar yazma (admin_set_settings RPC)","Admin: settings write (admin_set_settings RPC)")+(okS?"":L("  ← SQL 17 çalıştırılmamış ya da şifre değişmiş olabilir","  ← SQL 17 missing or password changed"))); }
-        else if(isAdminAuthed()){ var okK=await pushCloudSettingsPatch({}); mark(okK===true, L("Yönetici: ayar yazma (servis anahtarı yolu)","Admin: settings write (service-key path)")); }
+        /* Boş {} gövde yerine mevcut bir alanı kendi değeriyle geri yazıyoruz — PostgREST boş
+           PATCH gövdesinde 0 satır etkiler/hata verir, bu da yazma çalışsa bile testi yanlış
+           kırmızı gösterirdi. Bu, gerçek bir satırı gerçekten günceller (zararsız, no-op değer). */
+        var echoPatch={watch_required:!!CFG.watchRequired};
+        if(adminAuthHash && un){ var okS=await pushCloudSettingsPatch(echoPatch); mark(okS===true, L("Yönetici: ayar yazma (admin_set_settings RPC)","Admin: settings write (admin_set_settings RPC)")+(okS?"":L("  ← SQL 17 çalıştırılmamış ya da şifre değişmiş olabilir","  ← SQL 17 missing or password changed"))); }
+        else if(isAdminAuthed()){ var okK=await pushCloudSettingsPatch(echoPatch); mark(okK===true, L("Yönetici: ayar yazma (servis anahtarı yolu)","Admin: settings write (service-key path)")); }
         else line(null, L("Yönetici ayar-yazma testi atlandı — bu sekmede giriş yok","Admin settings-write test skipped — not signed in on this tab"));
       }catch(e){ mark(false, L("Yönetici yazma yolu hata: ","Admin write path error: ")+e); }
       /* 4) hesap tablosu */
