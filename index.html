@@ -63,6 +63,15 @@
   .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 14px;border-radius:10px;font-size:.85rem;z-index:9999;box-shadow:0 6px 24px rgba(0,0,0,.28);max-width:92vw;line-height:1.35}
   .toast.ok{background:#1c7a3c}.toast.warn{background:#a15c00}.toast.bad{background:#a92a25}
   .toast button{margin-left:10px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:7px;padding:4px 9px;cursor:pointer;font-size:.8rem}
+  /* Yeni sürüm yayınlandığında üstte çıkan güncelleme çubuğu — "Ctrl+F5 yapın" demek yerine
+     tek tıkla güncelleyen bir düğme sunar (gemide önbellekte eski sürüm takılı kalıyordu). */
+  .upd-banner{position:fixed;top:0;left:0;right:0;z-index:10000;display:flex;align-items:center;justify-content:center;
+    gap:12px;flex-wrap:wrap;background:linear-gradient(90deg,#0e2338,#14506e);color:#fff;padding:10px 14px;
+    font-size:.88rem;box-shadow:0 3px 14px rgba(0,0,0,.3)}
+  .upd-banner button{border:0;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.85rem;font-weight:600}
+  .upd-banner button#updNow{background:#e8b53a;color:#3a2b00}
+  .upd-banner button#updNow:hover{background:#f3c65a}
+  .upd-banner button#updLater{background:transparent;color:#cfe0ea;border:1px solid rgba(255,255,255,.45);font-weight:500}
   /* Başlığa yeni bir aday-girişi düğmesi eklenince (🎓 Sunumlar/Sınavlar) dar ekranlarda başlık
      taşabiliyordu — metin etiketlerini gizleyip sadece ikon+araç ipucu bırak, .tools da sarsın. */
   @media(max-width:560px){ .tools{flex-wrap:wrap;justify-content:flex-end;row-gap:6px} #candBtnTxt,#adminBtnTxt{display:none} }
@@ -526,7 +535,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 20:56";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 21:12";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -5789,31 +5798,56 @@ applyChrome();
    Sınav parametreleri (aid/name/rank...) korunur. Yenileme sonrası hâlâ eskiyse döngüye
    girilmez; kullanıcıya elle yenilemesi söylenir. */
 var SS_VER_RELOAD = "gsm_ver_reload_v1";
-function checkAppVersion(){
+/* Önbelleği kesin atlatan yenileme: URL'e her seferinde farklı bir _v eklenir, böylece
+   tarayıcı dosyayı önbellekten değil sunucudan alır. Sınav parametreleri (aid/name/...) korunur. */
+function hardReloadApp(){
+  try{
+    var u=new URL(location.href);
+    u.searchParams.set("_v", String(Date.now()));
+    location.replace(u.toString());
+  }catch(e){ try{ location.reload(); }catch(e2){} }
+}
+function showUpdateBanner(){
+  if(document.getElementById("updBanner")) return;
+  var en = (lang==="en");
+  var d=document.createElement("div");
+  d.id="updBanner"; d.className="upd-banner";
+  d.innerHTML='<span>⬆️ <b>'+(en?"A new version is available.":"Yeni bir sürüm yayınlandı.")+'</b> '+
+      (en?"Update to get the latest fixes.":"En son düzeltmeler için güncelleyin.")+'</span>'+
+    '<button id="updNow">🔄 '+(en?"Update now":"Şimdi güncelle")+'</button>'+
+    '<button id="updLater">'+(en?"Later":"Sonra")+'</button>';
+  document.body.appendChild(d);
+  document.getElementById("updNow").onclick=function(){
+    this.disabled=true; this.textContent=en?"Updating…":"Güncelleniyor…";
+    hardReloadApp();
+  };
+  document.getElementById("updLater").onclick=function(){ d.remove(); };
+}
+/* auto=true (açılışta): eski sürümse kullanıcıyı hiç uğraştırmadan tek sefer kendini tazeler.
+   auto=false (periyodik kontrol): sayfa açıkken yeni sürüm çıkarsa üstte güncelleme çubuğu
+   gösterir — soru cevaplarken habersiz sayfa yenilenmesin diye asla otomatik yenilemez. */
+function checkAppVersion(auto){
   if(!(location.protocol==="http:"||location.protocol==="https:")) return;
   try{
     fetch("version.json?t="+Date.now(), {cache:"no-store"})
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(v){
         if(!v || !v.stamp || v.stamp===BUILD_STAMP) return;
+        var midExam = (typeof state!=="undefined" && state && (state.phase==="module" || state.phase==="deck"));
         var tried=""; try{ tried=sessionStorage.getItem(SS_VER_RELOAD)||""; }catch(e){}
-        if(tried===v.stamp){
-          toast(lang==="en"
-            ? "A newer version is published. Please refresh with Ctrl+F5."
-            : "Yeni bir sürüm yayınlandı. Lütfen Ctrl+F5 ile sayfayı yenileyin.", "warn", true);
+        if(auto && !midExam && tried!==v.stamp){
+          try{ sessionStorage.setItem(SS_VER_RELOAD, v.stamp); }catch(e){}
+          hardReloadApp();
           return;
         }
-        try{ sessionStorage.setItem(SS_VER_RELOAD, v.stamp); }catch(e){}
-        try{
-          var u=new URL(location.href);
-          u.searchParams.set("_v", String(v.stamp).replace(/[^\w.-]+/g,""));
-          location.replace(u.toString());
-        }catch(e){}
+        showUpdateBanner();
       }).catch(function(){});
   }catch(e){}
 }
 pullCloudSettings();
-checkAppVersion();
+checkAppVersion(true);
+/* Sayfa uzun süre açık kalırsa (gemide sık oluyor) yeni sürümü 10 dakikada bir kontrol et. */
+setInterval(function(){ checkAppVersion(false); }, 600000);
 try{ console.log("İNKA Akademi build", BUILD_STAMP); }catch(e){}
 (function(){ var b=document.getElementById("cloudSyncBadge"); if(b) b.onclick=showSyncDetail; })();   /* D3 */
 /* Bekleyen ya da hiç doğrulanmamış bir bulut yazması varken, aday ekranı değiştirmese bile (ör. bitiş
