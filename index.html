@@ -535,7 +535,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 22:21";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 22:36";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -4456,6 +4456,73 @@ function owedForPerson(rank, rec){
   var missing = req.filter(function(c){ return !done[c]; });
   return { required:req.length, done:req.length-missing.length, missing:missing };
 }
+/* ---- Gemi Denetim Raporu: denetçiye/vetting'e verilebilecek, kendi kendine yeten HTML.
+   Panodaki widget ekranda incelemek içindir; bu ise imzalanıp dosyalanabilir bir belge üretir. ---- */
+function buildVesselAuditReport(vessel, people){
+  var en = lang==="en";
+  var today = fmtDateOnly(new Date());
+  var rows = people.map(function(x){
+    var rec=x.rec, ow=owedForPerson(x.u.rank, rec);
+    var e = rec ? certExpiryInfo(rec) : null;
+    var expTxt = e ? (fmtDateOnly(e.val) + (e.daysLeft<0 ? (en?" (expired)":" (doldu)") : (e.daysLeft<=90 ? " ("+e.daysLeft+(en?"d":" gun")+")" : ""))) : "—";
+    var expCls = e ? (e.daysLeft<0 ? "bad" : (e.daysLeft<=90 ? "warn" : "")) : "";
+    var ok = ow.required>0 && ow.missing.length===0;
+    return '<tr>'+
+      '<td class="n">'+esc(x.u.display_name||"")+'</td>'+
+      '<td>'+esc(x.u.rank||"—")+'</td>'+
+      '<td>'+esc(x.u.sicil||"—")+'</td>'+
+      '<td class="c">'+(ow.required? (ow.done+" / "+ow.required) : "—")+'</td>'+
+      '<td class="miss">'+(ow.missing.length? esc(ow.missing.join(", ")) : '<span class="ok">'+(en?"none":"yok")+'</span>')+'</td>'+
+      '<td class="c '+expCls+'">'+esc(expTxt)+'</td>'+
+      '<td class="c"><b class="'+(ok?"ok":"bad")+'">'+(ok?(en?"COMPLIANT":"UYGUN"):(en?"PENDING":"EKSİK"))+'</b></td>'+
+    '</tr>';
+  }).join("");
+  var okCount = people.filter(function(x){ var o=owedForPerson(x.u.rank,x.rec); return o.required>0 && o.missing.length===0; }).length;
+  var expCount = people.filter(function(x){ var e=x.rec?certExpiryInfo(x.rec):null; return !!(e && e.daysLeft<=90); }).length;
+  var T2 = en
+    ? {title:"TRAINING COMPLIANCE REPORT", sub:"Vessel personnel assessment status", vesselL:"Vessel", dateL:"Report date",
+       ruleL:"Rule", rule:"20 questions per module, pass mark "+CFG.passMark+"/20 · certificate validity "+CFG.validYears+" years",
+       sum:"Summary", sumTxt:okCount+" of "+people.length+" crew fully compliant · "+expCount+" certificate(s) expiring within 90 days",
+       th:["Name","Rank","Seaman's Book","Completed / Required","Outstanding modules","Certificate valid until","Status"],
+       sig1:"Master", sig2:"Company / DPA", print:"Print / Save as PDF",
+       note:"Generated from live assessment records. Outstanding modules are those required for the rank and not yet passed."}
+    : {title:"EĞİTİM UYGUNLUK RAPORU", sub:"Gemi personeli değerlendirme durumu", vesselL:"Gemi", dateL:"Rapor tarihi",
+       ruleL:"Kural", rule:"Her modül 20 soru, geçme "+CFG.passMark+"/20 · sertifika geçerliliği "+CFG.validYears+" yıl",
+       sum:"Özet", sumTxt:people.length+" personelin "+okCount+" tanesi tam uygun · 90 gün içinde süresi dolacak sertifika: "+expCount,
+       th:["Ad Soyad","Görev","Seaman's Book","Tamamlanan / Zorunlu","Eksik modüller","Sertifika geçerlilik","Durum"],
+       sig1:"Kaptan", sig2:"Şirket / DPA", print:"Yazdır / PDF olarak kaydet",
+       note:"Canlı değerlendirme kayıtlarından üretilmiştir. Eksik modüller, görev tanımı gereği zorunlu olup henüz geçilmemiş olanlardır."};
+  return '<!doctype html><html lang="'+(en?"en":"tr")+'"><head><meta charset="utf-8">'+
+    '<title>'+esc(T2.title)+' — '+esc(vessel)+'</title><style>'+
+    'body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#12242f}'+
+    'h1{font-size:18px;margin:0 0 2px}h2{font-size:13px;font-weight:500;color:#5b6b7c;margin:0 0 14px}'+
+    '.meta{display:flex;gap:26px;flex-wrap:wrap;font-size:12.5px;margin-bottom:10px}'+
+    '.meta b{color:#0e2338}'+
+    '.sum{background:#eef4f8;border:1px solid #d7e2ea;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:12px}'+
+    'table{border-collapse:collapse;width:100%;font-size:11.5px}'+
+    'th,td{border:1px solid #cfd8e0;padding:5px 7px;vertical-align:top}'+
+    'th{background:#0e2338;color:#fff;text-align:left;font-size:11px}'+
+    'td.c{text-align:center;white-space:nowrap}td.n{font-weight:600}'+
+    'td.miss{font-size:10.5px;color:#8a4b00}'+
+    '.ok{color:#1e8449}.bad{color:#c0392b}.warn{color:#a15c00}'+
+    '.note{font-size:10.5px;color:#6b7a88;margin-top:10px}'+
+    '.sig{display:flex;gap:60px;margin-top:34px;font-size:12px}'+
+    '.sig div{flex:1;border-top:1px solid #99a7b3;padding-top:5px;text-align:center;color:#5b6b7c}'+
+    '.pb{margin:0 0 14px}.pb button{background:#0e2338;color:#fff;border:0;border-radius:7px;padding:8px 16px;cursor:pointer;font-size:13px}'+
+    '@media print{.pb{display:none}body{margin:8mm}}'+
+    '</style></head><body>'+
+    '<div class="pb"><button onclick="window.print()">'+esc(T2.print)+'</button></div>'+
+    '<h1>'+esc(CFG.company)+' — '+esc(T2.title)+'</h1><h2>'+esc(T2.sub)+'</h2>'+
+    '<div class="meta"><span><b>'+esc(T2.vesselL)+':</b> '+esc(vessel)+'</span>'+
+      '<span><b>'+esc(T2.dateL)+':</b> '+today+'</span>'+
+      '<span><b>'+esc(T2.ruleL)+':</b> '+esc(T2.rule)+'</span></div>'+
+    '<div class="sum"><b>'+esc(T2.sum)+':</b> '+esc(T2.sumTxt)+'</div>'+
+    '<table><thead><tr>'+T2.th.map(function(h){ return '<th>'+esc(h)+'</th>'; }).join("")+'</tr></thead>'+
+    '<tbody>'+rows+'</tbody></table>'+
+    '<div class="note">'+esc(T2.note)+'</div>'+
+    '<div class="sig"><div>'+esc(T2.sig1)+'</div><div>'+esc(T2.sig2)+'</div></div>'+
+    '</body></html>';
+}
 /* ---- D5: panelden Eğitim Matrisi (TR/EN) — kendi kendine yeten HTML, Yazdır → PDF ---- */
 var MATRIX_RANKS = ["Master","Chf Off","2nd Off","3rd Off","4th Off","Deck Cad","Chf Eng","2nd Eng","3rd Eng","4th Eng","Eng Cad","ETO","Bosun","AB","OS","Oiler","Wiper","Fitter","Cook","Stwrd"];
 var MATRIX_RANK_LABEL = {"Chf Off":"Chief Officer","Deck Cad":"Deck Cadet","Chf Eng":"Chief Eng","Eng Cad":"Eng Cadet","Stwrd":"Steward"};
@@ -5277,10 +5344,19 @@ function renderAdmin(){
           '<div class="btnrow" style="margin-top:6px">'+
             (notStarted.length?'<button class="btn sm ghost fleet-copy-ns" data-v="'+esc(v)+'">📋 '+(lang==="en"?"Copy not-started names":"Başlamayanları kopyala")+' ('+notStarted.length+')</button>':'')+
             '<button class="btn sm ghost fleet-certs" data-v="'+esc(v)+'">📄 '+(lang==="en"?"Vessel certificates PDF":"Gemi Sertifikaları (PDF)")+'</button>'+
+            '<button class="btn sm gold fleet-audit" data-v="'+esc(v)+'">🖨 '+(lang==="en"?"Compliance report":"Denetim Raporu")+'</button>'+
           '</div>';
       }).join("");
       wrap.querySelectorAll(".fleet-head").forEach(function(h){ h.onclick=function(){ var v=h.getAttribute("data-v"); fleetOpenVessel = (fleetOpenVessel===v) ? "" : v; render(); }; });
       wrap.querySelectorAll(".fleet-open").forEach(function(b){ b.onclick=function(){ var rec=byAid[b.getAttribute("data-aid")]; if(rec){ renderAdminDetail(rec); window.scrollTo(0,0); } }; });
+      wrap.querySelectorAll(".fleet-audit").forEach(function(b){ b.onclick=function(){
+        var v=b.getAttribute("data-v");
+        var ppl=(groups[v]||[]).map(function(u){ var rec=recFor(u); return {u:u, rec:rec, st:personStatus(rec)}; });
+        ppl.sort(function(a,b2){ return String(a.u.display_name||"").localeCompare(String(b2.u.display_name||"")); });
+        download("denetim_raporu_"+String(v).replace(/[^\w.-]+/g,"_")+"_"+ymd(new Date())+".html",
+                 buildVesselAuditReport(v, ppl), "text/html;charset=utf-8");
+        toast(lang==="en"?"Report downloaded — open it and Print → Save as PDF":"Rapor indirildi — açıp Yazdır → PDF olarak kaydet","ok");
+      }; });
       wrap.querySelectorAll(".fleet-copy-ns").forEach(function(b){ b.onclick=function(){
         var v=b.getAttribute("data-v"); var names=(groups[v]||[]).filter(function(u){ return personStatus(recFor(u))==="none"; }).map(function(u){ return u.display_name; });
         copyText(names.join("\n"), b);
