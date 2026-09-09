@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 17:54";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 18:22";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1115,12 +1115,12 @@ function cloudIdRow(){
   };
 }
 function cloudPushStart(){
-  if(!SB_ON || !state) return;
+  if(!SB_ON || !state || state.practice) return;
   var r=cloudIdRow(); r.status="registered"; r.pass_mark=CFG.passMark; r.module_count=state.modules.length;
   sbInsert(r).then(function(ok){ noteCloudAttempt(ok); if(state){ if(!ok) state.cloudPending=true; save(); } updateSyncBadge(); });
 }
 function cloudPushProgress(){
-  if(!SB_ON || !state) return;
+  if(!SB_ON || !state || state.practice) return;
   try{
     var rec=buildRecord();
     sbSave(cloudIdRow(), {
@@ -1134,7 +1134,7 @@ function cloudPushProgress(){
    değil — cloudVerified de yoksa bitiş kaydı yeniden gönderilir (izin açıldığında bitirmiş
    adaylar da kod toplanmadan kendiliğinden panele düşer). */
 function cloudPushDone(){
-  if(!SB_ON || !state || (state.cloudDone && state.cloudVerified)) return;
+  if(!SB_ON || !state || state.practice || (state.cloudDone && state.cloudVerified)) return;
   try{
     var rec=buildRecord();
     sbSave(cloudIdRow(), {
@@ -1829,6 +1829,12 @@ var STR = {
   failNote:function(codes){return "Sertifika için tüm modülleri geçmeniz gerekir. Kalınan modüller: <b>"+codes+"</b>";},
   retake:"Kalınan modülleri tekrar et", startOver:"Baştan başla",
   restartConfirm:"Yeni sınav başlatılsın mı? Mevcut oturum silinecek.",
+  refresherBtn:"🔄 Bilgi Tazeleme", refresherTitle:"Bilgi Tazeleme",
+  refresherLead:"Sertifikanız geçerli — bu, resmi bir sınav değildir, sadece bilgilerinizi tazelemeniz içindir. Sonunda sertifika verilmez, sadece Geçti/Kaldı gösterilir.",
+  refresherPick:"Tekrar etmek istediğiniz modülleri seçin:", refresherStart:"Başla", refresherCancel:"Vazgeç",
+  refresherNeedOne:"En az bir modül seçin.",
+  refresherResultTitle:"Bilgi Tazeleme Sonucu", refresherResultLead:"Bu bir sertifika sınavı değildi — sonuç kaydedilmedi.",
+  refresherFinish:"Bitir",
   certReady:"Sertifika hazır",
   certReadyLead:"Sertifikayı yazdırabilir veya tarayıcının 'PDF olarak kaydet' seçeneğiyle saklayabilirsiniz.",
   printBtn:"🖨️ Yazdır / PDF", backResults:"← Sonuçlara dön",
@@ -2051,6 +2057,12 @@ var STR = {
   failNote:function(codes){return "You must pass all modules to receive the certificate. Failed modules: <b>"+codes+"</b>";},
   retake:"Retake failed modules", startOver:"Start over",
   restartConfirm:"Start a new exam? The current session will be deleted.",
+  refresherBtn:"🔄 Refresher Practice", refresherTitle:"Refresher Practice",
+  refresherLead:"Your certificate is valid — this is not a formal exam, just a way to refresh your knowledge. No certificate is issued at the end, only Pass/Fail.",
+  refresherPick:"Choose which modules to review:", refresherStart:"Start", refresherCancel:"Cancel",
+  refresherNeedOne:"Select at least one module.",
+  refresherResultTitle:"Refresher Practice Result", refresherResultLead:"This was not a certified exam — the result was not recorded.",
+  refresherFinish:"Finish",
   certReady:"Certificate ready",
   certReadyLead:"Print the certificate or keep it with your browser's 'Save as PDF' option.",
   printBtn:"🖨️ Print / PDF", backResults:"← Back to results",
@@ -2213,6 +2225,7 @@ var STR = {
 
 var app=document.getElementById("app"), certEl=document.getElementById("certificate"), recEl=document.getElementById("record");
 var state=null, lang="tr", TICK=null, lastFocusTs=0;
+var realState=null;   /* Bilgi Tazeleme (pratik) modundayken gerçek/resmi sertifikalı durum burada bekletilir */
 
 function T(){ return STR[lang]; }
 function byCode(l){ var o={}; DATA[l].forEach(function(m){o[m.code]=m;}); return o; }
@@ -2556,6 +2569,77 @@ function newState(f){
     current:0, phase: CFG.freeOrder ? "pick" : "module"
   };
 }
+/* ---------------- BİLGİ TAZELEME (pratik, sertifikasız) ----------------
+   Sertifikası zaten geçerli (tüm modülleri geçmiş) bir aday, resmi sınav sayılmadan,
+   sunum+soruları tekrar görebilsin diye. Gerçek `state` bir kenara alınır (realState),
+   ayrı bir attemptId'li geçici bir state kurulur — save() farklı bir localStorage
+   yuvasına yazdığı için gerçek/sertifikalı kayda hiç dokunmaz; bulut/log fonksiyonları
+   da state.practice bayrağını görünce sessizce atlar (cloudPushStart/Progress/Done,
+   logAttempt). Bitirince realState geri yüklenir, gerçek sonuç ekranına dönülür. */
+function newPracticeState(codes){
+  var bc=byCode(lang);
+  var order={},optOrder={},answers={},focus={};
+  codes.forEach(function(c,mi){
+    var m=bc[c];
+    var qi=m.questions.map(function(_,i){return i;});
+    shuffleArr(qi);
+    order[mi]=qi; optOrder[mi]={}; answers[mi]={}; focus[mi]=0;
+    m.questions.forEach(function(q){ optOrder[mi][q.n]=["a","b","c","d","e"]; });
+  });
+  return {
+    attemptId: "PRACTICE_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+    fromLink:false, practice:true,
+    lang:lang, name:realState.name, rank:realState.rank, vessel:realState.vessel, sicil:realState.sicil,
+    honor:true, shuffle:true, signOnDate:realState.signOnDate||"",
+    started:new Date().toISOString(), modules:codes,
+    order:order, optOrder:optOrder, answers:answers, results:{}, mtime:{}, clock:{}, focus:focus, deckDone:{},
+    current:0, phase:"pick"
+  };
+}
+function renderPracticePicker(){
+  stopTimer(); certEl.style.display="none"; recEl.style.display="none";
+  var t=T(), src=realState||state, bc=byCode(lang);
+  var passedCodes = src.modules.filter(function(c,mi){ return src.results[mi] && src.results[mi].passed; });
+  var rows = passedCodes.map(function(c){
+    var m=bc[c];
+    return '<label class="chk" style="display:flex;gap:10px;align-items:flex-start;margin:8px 0;cursor:pointer">'+
+      '<input type="checkbox" class="prCk" value="'+esc(c)+'" checked style="margin-top:3px">'+
+      '<span>'+t.moduleOf(m.code)+' — '+esc(m.name)+'</span></label>';
+  }).join("");
+  app.innerHTML='<div class="card"><h2>'+t.refresherTitle+'</h2>'+
+    '<p class="lead">'+t.refresherLead+'</p>'+
+    '<p style="margin:.6rem 0 .2rem;font-weight:600">'+t.refresherPick+'</p>'+
+    rows+
+    '<div class="btnrow" style="margin-top:14px">'+
+      '<button class="btn gold" id="prStart">'+t.refresherStart+'</button>'+
+      '<button class="btn ghost" id="prCancel">'+t.refresherCancel+'</button>'+
+    '</div></div>';
+  document.getElementById("prCancel").onclick=function(){ state=realState; realState=null; renderSummary(); window.scrollTo(0,0); };
+  document.getElementById("prStart").onclick=function(){
+    var chosen=Array.from(document.querySelectorAll(".prCk:checked")).map(function(i){return i.value;});
+    if(!chosen.length){ alert(t.refresherNeedOne); return; }
+    setActiveAid("");   /* pratik bitene kadar sayfa yenilemesi gerçek kayda değil pratiğe dönmesin */
+    state=newPracticeState(chosen); save(); renderPick(); window.scrollTo(0,0);
+  };
+}
+function renderPracticeSummary(){
+  stopTimer(); certEl.style.display="none"; recEl.style.display="none";
+  var t=T(), mods=MODULES();
+  var rows=mods.map(function(m,mi){
+    var r=state.results[mi]||{correct:0,passed:false};
+    return '<tr><td>'+m.code+'</td><td>'+esc(m.name)+'</td>'+
+      '<td class="sc">'+r.correct+' / 20</td>'+
+      '<td class="st"><span class="pill '+(r.passed?"pass":"fail")+'">'+(r.passed?t.pPass:t.pFail)+'</span></td></tr>';
+  }).join("");
+  app.innerHTML='<div class="card"><h2>'+t.refresherResultTitle+'</h2>'+
+    '<p class="lead">'+t.refresherResultLead+'</p>'+
+    '<table class="summary"><thead><tr><th>'+t.thNo+'</th><th>'+t.thModule+'</th><th>'+t.thCorrect+'</th><th>'+t.thStatus+'</th></tr></thead>'+
+    '<tbody>'+rows+'</tbody></table>'+
+    '<div class="btnrow" style="margin-top:14px"><button class="btn gold" id="prFinish">'+t.refresherFinish+'</button></div></div>';
+  document.getElementById("prFinish").onclick=function(){
+    state=realState; realState=null; setActiveAid(state.attemptId); save(); renderSummary(); window.scrollTo(0,0);
+  };
+}
 /* Kişiye özel Crew List linki (?aid=...) ile hangi cihazdan girilirse girilsin kaldığı
    yerden devam edebilmek için: bulutta o attempt_id'ye ait kayıt varsa, o kayıttan
    (rec.mods[]) çalışan bir state nesnesi yeniden kurar. Sadece TAMAMLANMIŞ modüllerin
@@ -2873,14 +2957,18 @@ function renderPick(){
     '<div class="btnrow" style="margin-top:16px">'+
       '<button class="btn gold" id="pkFinish">'+t.pickFinish+'</button>'+
     '</div></div>';
-  document.getElementById("pkBack").onclick=function(){ renderIntro(state); window.scrollTo(0,0); };
+  document.getElementById("pkBack").onclick=function(){
+    if(state.practice){ state=realState; realState=null; renderSummary(); }
+    else renderIntro(state);
+    window.scrollTo(0,0);
+  };
   app.querySelectorAll("button[data-mi]").forEach(function(b){
     b.onclick=function(){ gotoModule(+b.getAttribute("data-mi")); };
   });
   document.getElementById("pkFinish").onclick=function(){
     var left=mods.length-doneCount;
     if(left>0 && !confirm(t.pickFinishConfirm(left))) return;
-    state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0);
+    state.phase="summary"; save(); goSummary(); window.scrollTo(0,0);
   };
 }
 function renderDeck(mi){
@@ -2888,13 +2976,13 @@ function renderDeck(mi){
   var t=T(), m=MODULES()[mi], isVid=isVideoModule(m.code);
   /* watchRequired kapatılırsa (Ayarlar'dan) adaylar için de bekleme 0 olur — bu, ADMIN_UI'nin
      zaten her zaman 0 olan durumuyla aynı davranışı normal sitede de isteğe bağlı açar. */
-  var minS = (ADMIN_UI || CFG.watchRequired===false) ? 0 : (isVid ? (VIDEO_DURATION_SEC[m.code]||CFG.deckMinSec||0) : Math.max(0, +CFG.deckMinSec||0));
+  var minS = (ADMIN_UI || CFG.watchRequired===false || state.practice) ? 0 : (isVid ? (VIDEO_DURATION_SEC[m.code]||CFG.deckMinSec||0) : Math.max(0, +CFG.deckMinSec||0));
   /* .wrap'in 920px sınırını aşıp TÜM kartı (başlık, sunum, onay, buton) aynı geniş ölçüde
      hizalar — sadece sunum penceresi değil. (viewport tabanlı breakout, ekrana göre) */
   app.innerHTML=
     '<div style="position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;padding:0 12px;box-sizing:border-box">'+
     '<div class="card" style="max-width:1360px;margin:20px auto 0">'+renderStepper()+
-    (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost" id="deckBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
+    ((CFG.freeOrder || state.practice) && !state.retakeQueue ? '<button class="btn sm ghost" id="deckBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
     '<span class="chip" style="background:'+modColor(m.code)+';color:#fff">'+modIcon(m.code)+' '+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin:10px 0 2px">'+esc(m.name)+'</h2>'+
     '<p style="margin:.2rem 0 10px;color:var(--muted);font-size:.9rem">'+(isVid?t.deckLeadVideo:t.deckLead)+'</p>'+
@@ -2970,7 +3058,7 @@ function renderModule(mi){
   var answered=Object.keys(ans).length;
 
   var html='<div class="card">'+renderStepper()+
-    (CFG.freeOrder && !state.retakeQueue ? '<button class="btn sm ghost no-print" id="modBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
+    ((CFG.freeOrder || state.practice) && !state.retakeQueue ? '<button class="btn sm ghost no-print" id="modBack" style="margin-bottom:8px">'+t.pickBack+'</button>' : '')+
     '<span class="chip" style="background:'+modColor(m.code)+';color:#fff">'+modIcon(m.code)+' '+t.moduleOf(m.code)+'</span>'+
     '<h2 style="margin-top:10px">'+esc(m.name)+'</h2>'+
     '<div class="progress-outer"><div class="progress-bar"><div class="progress-fill" id="pf"></div></div>'+
@@ -3097,7 +3185,7 @@ function gradeModule(mi,auto){
 function renderModuleResult(mi){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), m=MODULES()[mi], r=state.results[mi];
-  var freeMode = CFG.freeOrder && !state.retakeQueue;
+  var freeMode = (CFG.freeOrder || state.practice) && !state.retakeQueue;
   var last = !freeMode && mi===MODULES().length-1;
   var html='<div class="card">'+renderStepper()+
     '<span class="chip" style="background:var(--navy);color:#fff">'+t.moduleOf(m.code)+'</span>'+
@@ -3108,7 +3196,7 @@ function renderModuleResult(mi){
       (state.focus[mi]?' · '+t.focusChip(state.focus[mi]):'')+'</p>'+
     '<span class="result-badge '+(r.passed?"pass":"fail")+'">'+(r.passed?t.passBadge:t.failBadge)+'</span>'+
     '<div class="btnrow">'+
-      (r.passed?'<button class="btn gold" id="btnCertNow">'+t.certNowBtn+'</button>':'')+
+      (r.passed && !state.practice?'<button class="btn gold" id="btnCertNow">'+t.certNowBtn+'</button>':'')+
       ((CFG.allowReview && ADMIN_UI)?'<button class="btn ghost no-print" id="btnReview">'+t.reviewShow+'</button>':'')+
       '<button class="btn'+((last&&!r.passed)?' gold':'')+'" id="btnNext">'+(freeMode?t.pickBack:(last?t.seeResults:t.nextModule))+'</button>'+
     '</div><div id="reviewBox" class="review" style="display:none;margin-top:18px"></div></div>';
@@ -3120,9 +3208,9 @@ function renderModuleResult(mi){
     if(state.retakeQueue){
       var q=state.retakeQueue, pos=q.indexOf(mi), nxt=q[pos+1];
       if(nxt!=null){ gotoModule(nxt); }
-      else { delete state.retakeQueue; state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
+      else { delete state.retakeQueue; state.phase="summary"; save(); goSummary(); window.scrollTo(0,0); }
     } else if(freeMode){ state.phase="pick"; save(); renderPick(); window.scrollTo(0,0); }
-    else if(last){ state.phase="summary"; save(); renderSummary(); window.scrollTo(0,0); }
+    else if(last){ state.phase="summary"; save(); goSummary(); window.scrollTo(0,0); }
     else { gotoModule(mi+1); }
   };
   var rb=document.getElementById("btnReview");
@@ -3226,7 +3314,7 @@ function mergeRecords(list, incoming){
   return added;
 }
 function logAttempt(){
-  if(state.logged) return;
+  if(state.logged || state.practice) return;
   try{
     var log=loadRecords();
     var rec=buildRecord();
@@ -3254,6 +3342,9 @@ function copyText(str, btn){
   try{ if(navigator.clipboard) navigator.clipboard.writeText(str); }catch(e){}
   if(btn){ var o=btn.textContent; btn.textContent=T().setCopied; setTimeout(function(){ btn.textContent=o; },1500); }
 }
+/* Bilgi Tazeleme (pratik) modundaysa gerçek/resmi sonuç ekranı yerine sertifikasız,
+   sadece Geçti/Kaldı gösteren hafif ekrana yönlendirir. */
+function goSummary(){ if(state && state.practice) renderPracticeSummary(); else renderSummary(); }
 function renderSummary(){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   if(state) { state.phase="summary"; save(); }
@@ -3280,6 +3371,7 @@ function renderSummary(){
     (anyPass?'<button class="btn gold" id="btnCerts">'+t.viewCerts+'</button>':'')+
     '<button class="btn'+(anyPass?' ghost':'')+'" id="btnRecord">'+t.viewRecord+'</button>'+
     (allPass?'':'<button class="btn" id="btnRetake">'+t.retake+'</button>')+
+    (allPass?'<button class="btn ghost" id="btnRefresher">'+t.refresherBtn+'</button>':'')+
     '<button class="btn ghost" id="btnRestart">'+(allPass?t.newExam:t.startOver)+'</button>'+
    '</div>';
   var failNote=allPass?'':'<div class="note">'+t.failNote(failedIdx.map(function(i){return MODULES()[i].code;}).join(", "))+'</div>';
@@ -3309,6 +3401,8 @@ function renderSummary(){
   };
   if(anyPass) document.getElementById("btnCerts").onclick=function(){ openCerts(buildRecord(), false); window.scrollTo(0,0); };
   document.getElementById("btnRecord").onclick=function(){ renderRecord(); window.scrollTo(0,0); };
+  var brf=document.getElementById("btnRefresher");
+  if(brf) brf.onclick=function(){ realState=state; renderPracticePicker(); window.scrollTo(0,0); };
   var rt=document.getElementById("btnRetake");
   if(rt) rt.onclick=function(){
     var bc=byCode(lang);
@@ -5635,7 +5729,7 @@ function render(){
   else if(state.phase==="deck") renderDeck(state.current);
   else if(state.phase==="module"){ if(needDeck(state.current)){ state.phase="deck"; save(); renderDeck(state.current); } else renderModule(state.current); }
   else if(state.phase==="moduleResult") renderModuleResult(state.current);
-  else if(state.phase==="summary") renderSummary();
+  else if(state.phase==="summary") goSummary();
   else if(state.phase==="certificate"){ if(!certCtx) certCtx={rec:buildRecord(),fromAdmin:false}; renderCertList(); }
   else if(state.phase==="record") renderRecord();
   else renderIntro(null);
