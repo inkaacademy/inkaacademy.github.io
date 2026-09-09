@@ -535,7 +535,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 21:34";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 21:49";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1836,7 +1836,9 @@ var STR = {
   honorLbl:"Bu sınavı kendi başıma, dışarıdan yardım ve kaynak kullanmadan cevaplayacağımı beyan ederim.",
   honorAlert:"Devam etmek için beyanı onaylayınız.",
   start:"Sınava Başla",
-  resume:function(n,c){return "Yarım kalmış bir sınav bulundu: <b>"+n+"</b> · Modül "+c+".";},
+  resume:function(n,c){return "Yarım kalmış bir sınav bulundu: <b>"+n+"</b> · Tamamlanan modül "+c+".";},
+  resumeDone:function(n,c){return "Kayıtlı sınavınız bulundu: <b>"+n+"</b> · Tamamlanan modül "+c+".";},
+  resumeSeeBtn:"Sınavıma git",
   resumeBtn:"Kaldığı yerden devam et", freshBtn:"Yeni sınav başlat",
   fromLinkNote:"Bu, size özel gönderilen bir link — kayıtlarınız güvende, hangi cihazdan açarsanız açın kaldığınız yerden devam edersiniz.",
   stepCap:function(a,b){return "Modül "+a+" / "+b;},
@@ -2070,7 +2072,9 @@ var STR = {
   honorLbl:"I declare that I will answer this exam on my own, without outside help or resources.",
   honorAlert:"Please confirm the declaration to continue.",
   start:"Start Exam",
-  resume:function(n,c){return "An unfinished exam was found: <b>"+n+"</b> · Module "+c+".";},
+  resume:function(n,c){return "An unfinished exam was found: <b>"+n+"</b> · Completed modules "+c+".";},
+  resumeDone:function(n,c){return "Your exam record was found: <b>"+n+"</b> · Completed modules "+c+".";},
+  resumeSeeBtn:"Go to my exam",
   resumeBtn:"Resume where I left off", freshBtn:"Start a new exam",
   fromLinkNote:"This is your personal link — your progress is safely stored; open it from any device and you'll continue right where you left off.",
   stepCap:function(a,b){return "Module "+a+" / "+b;},
@@ -2803,10 +2807,18 @@ function renderAidLoadError(aidParam, prefill){
 function renderIntro(resumable, prefill){
   stopTimer(); certEl.style.display="none"; recEl.style.display="none";
   var t=T(), N=CFG.modules.length;
+  /* Eskiden burada (current+1) yazıyordu: bu, adayın EN SON AÇTIĞI modülün sırasıydı,
+     ilerlemesi değil. Tüm modüllerini bitirmiş bir aday, en son ortadaki bir modülü açtıysa
+     "Modül 10 / 18" gibi yanıltıcı bir yazı görüyordu. Artık BİTİRİLEN modül sayısı yazılır;
+     hepsi bittiyse kart "yarım kalmış" değil "kayıtlı sınavınız" der. */
+  var rTotal = (resumable && resumable.modules) ? resumable.modules.length : N;
+  var rDone  = resumable ? Object.keys(resumable.results||{}).length : 0;
+  var rAll   = !!(resumable && rTotal>0 && rDone>=rTotal);
   var resumeHtml = resumable ? (
-    '<div class="resume-card"><div class="rc-top"><span class="rc-ico">⏳</span>'+
-    t.resume(esc(resumable.name||"—"), (resumable.current+1)+" / "+(resumable.modules?resumable.modules.length:N))+'</div>'+
-    '<div class="btnrow"><button class="btn gold" id="btnResume">'+t.resumeBtn+'</button>'+
+    '<div class="resume-card"><div class="rc-top"><span class="rc-ico">'+(rAll?"✅":"⏳")+'</span>'+
+    (rAll ? t.resumeDone(esc(resumable.name||"—"), rDone+" / "+rTotal)
+          : t.resume(esc(resumable.name||"—"), rDone+" / "+rTotal))+'</div>'+
+    '<div class="btnrow"><button class="btn gold" id="btnResume">'+(rAll?t.resumeSeeBtn:t.resumeBtn)+'</button>'+
     (resumable.fromLink ? '' : '<button class="btn ghost" id="btnFresh">'+t.freshBtn+'</button>')+'</div>'+
     (resumable.fromLink ? '<p style="font-size:.76rem;color:var(--muted);margin-top:8px">'+t.fromLinkNote+'</p>' : '')+
     '</div>'
