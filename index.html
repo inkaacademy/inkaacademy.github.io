@@ -526,7 +526,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v58 · 2026-09-09 20:29";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v58 · 2026-09-09 20:56";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1024,6 +1024,10 @@ function refreshCloud(then){
 /* İşlem geçmişi: kim (admin_username/display), ne zaman (ts, sunucu tarafında default now()),
    ne yaptı (action), neye (target), ne değişti (detail). Best-effort — tablo/script henüz
    kurulmamışsa veya bağlantı sorunu olursa SESSİZCE yutulur; asıl işlemi asla engellemez/geciktirmez. */
+/* İsimli admin hesabıyla girilmediyse (servis anahtarı yolu) işlem geçmişinde eskiden "?"
+   yazıyordu. Bu dosyanın/servis anahtarının sahibi şirketin yöneticisi olduğundan, isim
+   yoksa varsayılan olarak o yazılır. İsimli hesapla girildiğinde o hesabın adı kullanılır. */
+var ADMIN_FALLBACK_NAME = "Taner Akçığer";
 function logAdminAction(action, target, detail){
   if(!isAdminAuthed()) return;
   var an="", au=""; try{ an=localStorage.getItem(LS_ADMIN_NAME)||""; au=localStorage.getItem(LS_ADMIN_USER)||""; }catch(e){}
@@ -1031,7 +1035,7 @@ function logAdminAction(action, target, detail){
     sbFetch(SB_URL+"/rest/v1/admin_audit_log", {
       method:"POST", headers:sbAdminHeaders({"Prefer":"return=minimal"}),
       body:JSON.stringify({
-        admin_username: au || "(service_role)", admin_display_name: an || "?",
+        admin_username: au || "(service_role)", admin_display_name: an || ADMIN_FALLBACK_NAME,
         action: String(action||"").slice(0,100), target: String(target||"").slice(0,500), detail: String(detail||"").slice(0,1000)
       })
     }, 5000).catch(function(){});
@@ -5257,7 +5261,7 @@ function renderAdmin(){
             rows.map(function(row){
               var a=ACT[row.action]||["•",row.action];
               return '<tr><td style="white-space:nowrap;font-size:.78rem">'+admFmtDate(row.ts)+'</td>'+
-                '<td>'+esc(row.admin_display_name||"?")+'</td>'+
+                '<td>'+esc((!row.admin_display_name || row.admin_display_name==="?") ? ADMIN_FALLBACK_NAME : row.admin_display_name)+'</td>'+
                 '<td style="white-space:nowrap">'+a[0]+' '+esc(a[1])+'</td>'+
                 '<td style="font-size:.8rem">'+esc(row.target||"—")+'</td>'+
                 '<td style="font-size:.78rem;color:var(--muted)">'+esc(row.detail||"—")+'</td></tr>';
