@@ -543,7 +543,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v59 · 2026-09-10 10:43";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v59 · 2026-09-10 11:09";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -564,6 +564,7 @@ var savedCrewsOpen = false;
 var savedVesselsList = null;
 /* Gemi panosu + zor sorular kutuları (aynı nedenle renderAdmin() dışında). */
 var fleetBoxOpen = false, fleetData = null, fleetOpenVessel = "", healthBoxOpen = false, kitBoxOpen = false;
+var matrixOpenLang = "";   /* "" kapali, "tr" / "en" ise matris o dilde panelde acik */
 var statsBoxOpen = false;
 var hardBoxOpen = false;
 var auditBoxOpen = false;
@@ -4857,6 +4858,43 @@ function buildVesselAuditReport(vessel, people){
 /* ---- D5: panelden Eğitim Matrisi (TR/EN) — kendi kendine yeten HTML, Yazdır → PDF ---- */
 var MATRIX_RANKS = ["Master","Chf Off","2nd Off","3rd Off","4th Off","Deck Cad","Chf Eng","2nd Eng","3rd Eng","4th Eng","Eng Cad","ETO","Bosun","AB","OS","Oiler","Wiper","Fitter","Cook","Stwrd"];
 /* Matris basliklari da ayni tam adlari kullanir (bkz. RANK_LABEL). */
+/* Matris kutusunu (yönetici panelinde) çizer. matrixOpenLang boşsa kutuyu kapatır. */
+function renderMatrixBox(){
+  var box=document.getElementById("aMatrixBox");
+  if(!box) return;
+  if(!matrixOpenLang){ box.style.display="none"; box.innerHTML=""; return; }
+  var lc=matrixOpenLang, en=(lang==="en");
+  var title = lc==="tr" ? "Eğitim Matrisi (TR)" : "Training Matrix (EN)";
+  box.style.display="block";
+  box.innerHTML='<div class="btnrow" style="margin:0 0 8px">'+
+      '<b style="flex:1;align-self:center">🗂 '+esc(title)+'</b>'+
+      '<button class="btn sm gold" id="mxPrint">🖨 '+(en?"Print / PDF":"Yazdır / PDF")+'</button>'+
+      '<button class="btn sm ghost" id="mxDl">⬇️ '+(en?"Download (HTML)":"İndir (HTML)")+'</button>'+
+      '<button class="btn sm ghost" id="mxClose">'+(en?"Close":"Kapat")+'</button>'+
+    '</div>'+
+    '<iframe id="mxFrame" title="'+esc(title)+'" style="width:100%;height:620px;border:1px solid var(--line);border-radius:10px;background:#fff"></iframe>'+
+    '<div class="note" style="margin-top:6px;font-size:.78rem">'+
+      (en?"Live view of the rank-based module assignments. Scroll sideways inside the frame to see every rank."
+        : "Göreve göre modül atamalarının canlı görünümü. Bütün görevleri görmek için çerçevenin içinde yana kaydırın.")+
+    '</div>';
+  var doc=buildMatrixHtml(lc), fr=document.getElementById("mxFrame");
+  fr.onload=function(){
+    /* Belgenin kendi "Yazdır" çubuğu burada gereksiz — üstteki düğmeler onun yerini alıyor. */
+    try{ var bar=fr.contentDocument.querySelector(".bar"); if(bar) bar.style.display="none"; }catch(e){}
+  };
+  fr.srcdoc=doc;
+  document.getElementById("mxClose").onclick=function(){ matrixOpenLang=""; renderMatrixBox(); };
+  document.getElementById("mxDl").onclick=function(){
+    var fn = lc==="tr" ? ("egitim_matrisi_"+ymd(new Date())+"_TR.html") : ("training_matrix_"+ymd(new Date())+"_EN.html");
+    download(fn, doc, "text/html;charset=utf-8");
+    toast(en?"Downloaded — open it and Print → Save as PDF":"İndirildi — açıp Yazdır → PDF olarak kaydet","ok");
+  };
+  document.getElementById("mxPrint").onclick=function(){
+    /* Sadece çerçevedeki belgeyi bastırır (A4 yatay); panelin kendisi çıktıya girmez. */
+    try{ fr.contentWindow.focus(); fr.contentWindow.print(); }
+    catch(e){ download((lc==="tr"?"egitim_matrisi":"training_matrix")+"_"+ymd(new Date())+".html", doc, "text/html;charset=utf-8"); }
+  };
+}
 function buildMatrixHtml(lc){
   var en = lc==="en";
   var bcT=byCode("tr"), bcE=byCode("en");
@@ -5295,12 +5333,13 @@ function renderAdmin(){
       '<button class="btn sm ghost" id="aFleet">📊 '+(lang==="en"?"Fleet dashboard":"Gemi Panosu")+'</button>'+
       '<button class="btn sm ghost" id="aHard">📉 '+(lang==="en"?"Hardest questions":"Zor Sorular")+'</button>'+
       '<button class="btn sm ghost" id="aStats">📈 '+(lang==="en"?"Training analytics":"Eğitim Analizi")+'</button>'+
-      '<button class="btn sm ghost" id="aMatrixTr">🗂 '+(lang==="en"?"Matrix (TR)":"Matrisi indir (TR)")+'</button>'+
-      '<button class="btn sm ghost" id="aMatrixEn">🗂 '+(lang==="en"?"Matrix (EN)":"Matrisi indir (EN)")+'</button>'+
+      '<button class="btn sm ghost" id="aMatrixTr">🗂 '+(lang==="en"?"Matrix (TR)":"Eğitim Matrisi (TR)")+'</button>'+
+      '<button class="btn sm ghost" id="aMatrixEn">🗂 '+(lang==="en"?"Matrix (EN)":"Eğitim Matrisi (EN)")+'</button>'+
       '<button class="btn sm ghost" id="aExpiryCsv">⏳ '+(lang==="en"?"Expiring ≤90d (CSV)":"Süresi dolacaklar ≤90 gün (CSV)")+'</button>'+
       '<button class="btn sm ghost" id="aExpiryIcs">📅 '+(lang==="en"?"Expiring (calendar .ics)":"Süresi dolacaklar (takvim .ics)")+'</button>'+
       '<button class="btn sm ghost" id="aKit">🧰 '+(lang==="en"?"Ship kit (offline)":"Gemi kiti (çevrimdışı)")+'</button>'+
     '</div>'+
+    '<div id="aMatrixBox" style="display:none;margin-top:10px"></div>'+
     '<div id="aKitBox" style="display:'+(kitBoxOpen?"block":"none")+';margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:.84rem;line-height:1.5">'+
       (lang==="en"
         ? '<b>Ship kit — running the exam with poor or no internet</b><ol style="margin:6px 0 6px 18px;padding:0">'+
@@ -5564,11 +5603,17 @@ function renderAdmin(){
     crewState.open=!crewState.open;
     document.getElementById("aCrewBox").style.display=crewState.open?"block":"none";
   };
-  /* D5 — matris indir (TR/EN): kendi kendine yeten HTML, açınca Yazdır → PDF */
+  /* D5 — Eğitim Matrisi: önce indirilip ayrı bir dosyada açılması gerekiyordu; sadece
+     "kimin hangi modülleri alması gerekiyor" diye bakmak için bu fazla ağır bir yoldu.
+     Artık aynı belge panelin içinde açılıyor; indirme ve Yazdır → PDF yanındaki
+     düğmelerde duruyor. Belge kendi CSS'i olan tam bir HTML dosyası olduğu için
+     iframe/srcdoc ile gösteriliyor: panelin stilleriyle çakışmaz, çıktı birebir aynıdır. */
   (function(){
     var bt=document.getElementById("aMatrixTr"), be=document.getElementById("aMatrixEn");
-    if(bt) bt.onclick=function(){ download("egitim_matrisi_"+ymd(new Date())+"_TR.html", buildMatrixHtml("tr"), "text/html;charset=utf-8"); toast(lang==="en"?"Matrix (TR) downloaded — open it and Print → Save as PDF":"Matris (TR) indirildi — açıp Yazdır → PDF olarak kaydet","ok"); };
-    if(be) be.onclick=function(){ download("training_matrix_"+ymd(new Date())+"_EN.html", buildMatrixHtml("en"), "text/html;charset=utf-8"); toast(lang==="en"?"Matrix (EN) downloaded — open it and Print → Save as PDF":"Matris (EN) indirildi — açıp Yazdır → PDF olarak kaydet","ok"); };
+    var pick=function(lc){ matrixOpenLang = (matrixOpenLang===lc) ? "" : lc; renderMatrixBox(); };
+    if(bt) bt.onclick=function(){ pick("tr"); };
+    if(be) be.onclick=function(){ pick("en"); };
+    renderMatrixBox();
   })();
   /* D6 — süresi dolacaklar: CSV + takvim */
   (function(){
