@@ -542,7 +542,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v59 · 2026-09-10 09:49";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v59 · 2026-09-10 10:04";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -1334,17 +1334,21 @@ function byCrewOrder(rankOf, nameOf){
 }
 /* Sertifikada rütbe, resmi Crew List'te yazıldığı gibi tam ve İngilizce görünür.
    "2nd Off" / "Deck Cad" gibi uygulama içi kısaltmalar resmi bir belgede yakışıksızdı. */
-var RANK_FULL = {
-  "Master":"MASTER","Chf Off":"CHIEF OFFICER","2nd Off":"2ND OFFICER","3rd Off":"3RD OFFICER","4th Off":"4TH OFFICER",
-  "Chf Eng":"CHIEF ENGINEER","2nd Eng":"2ND ENGINEER","3rd Eng":"3RD ENGINEER","4th Eng":"4TH ENGINEER",
-  "ETO":"ETO","Bosun":"BOSUN","AB":"ABLE SEAMAN","OS":"ORDINARY SEAMAN","Deck Boy":"DECK BOY",
-  "Fitter":"FITTER","Oiler":"OILER","Wiper":"WIPER","Cook":"COOK","Stwrd":"STEWARD","Catering Boy":"CATERING BOY",
-  "Deck Cad":"DECK CADET","Eng Cad":"ENGINE CADET"
+/* Uygulamanin ic kodlari kisadir ("Chf Off", "Eng Cad") cunku ROLES/roleModules anahtari
+   olarak kullanilirlar. Kullaniciya gosterilen her yerde ise tam gorev adi yazilir. Kara
+   ofisi gorevleri (Fleet Manager, DPA ...) zaten tam yazili oldugu icin oldugu gibi gecer. */
+var RANK_LABEL = {
+  "Chf Off":"Chief Officer","2nd Off":"2nd Officer","3rd Off":"3rd Officer","4th Off":"4th Officer",
+  "Chf Eng":"Chief Engineer","2nd Eng":"2nd Engineer","3rd Eng":"3rd Engineer","4th Eng":"4th Engineer",
+  "AB":"Able Seaman","OS":"Ordinary Seaman","Stwrd":"Steward",
+  "Deck Cad":"Deck Cadet","Eng Cad":"Engine Cadet"
 };
-function rankFull(rank){
+function rankLabel(rank){
   var r=String(rank||"").trim(); if(!r) return "";
-  return RANK_FULL[r] || r.toUpperCase();
+  return RANK_LABEL[r] || r;
 }
+/* Sertifika ve dogrulama sayfasi icin BUYUK harfli hali (Crew List yazimi). */
+function rankFull(rank){ return rankLabel(rank).toUpperCase(); }
 function matchRank(raw){
   var k=String(raw||"").trim().toUpperCase().replace(/\s+/g," ");
   if(RANK_ALIASES[k]) return RANK_ALIASES[k];
@@ -2909,7 +2913,7 @@ function renderAidLoadError(aidParam, prefill){
   app.innerHTML='<div class="card">'+
     '<h2>⚠️ '+t.aidErrTitle+'</h2>'+
     '<p class="lead">'+t.aidErrLead+'</p>'+
-    (prefill && prefill.name ? '<p style="margin:.4rem 0 0"><b>'+esc(prefill.name)+'</b>'+(prefill.rank?' · '+esc(prefill.rank):'')+'</p>' : '')+
+    (prefill && prefill.name ? '<p style="margin:.4rem 0 0"><b>'+esc(prefill.name)+'</b>'+(prefill.rank?' · '+esc(rankLabel(prefill.rank)):'')+'</p>' : '')+
     '<div class="btnrow" style="margin-top:16px">'+
       '<button class="btn gold" id="aidRetry">'+t.aidErrRetry+'</button>'+
       '<button class="btn ghost" id="aidFresh">'+t.aidErrFresh+'</button>'+
@@ -2967,7 +2971,7 @@ function renderIntro(resumable, prefill){
         '<input type="text" id="fName" placeholder="'+esc(t.namePh)+'" autocomplete="name"></div>'+
       '<div><label class="fld" for="fRank">'+t.rankLbl+'</label>'+
         '<select id="fRank"><option value="">'+esc(t.rankPick)+'</option>'+
-        ROLES.map(function(r){return '<option value="'+esc(r)+'">'+esc(r)+'</option>';}).join("")+
+        ROLES.map(function(r){return '<option value="'+esc(r)+'">'+esc(rankLabel(r))+'</option>';}).join("")+
         '</select><div id="fRoleHint" style="font-size:.78rem;color:var(--muted);margin-top:4px"></div></div>'+
       '<div><label class="fld" for="fVessel">'+t.vesselLbl+'</label>'+
         '<select id="fVessel"><option value="">'+esc(t.vesselPick)+'</option>'+
@@ -2991,7 +2995,7 @@ function renderIntro(resumable, prefill){
     if(adminAllModules){ roleHint.textContent = T().roleAllModules(CFG.modules.length); return; }
     if(!r){ roleHint.textContent=""; return; }
     var mods=modulesForRole(r), custom=CFG.roleModules && CFG.roleModules[r] && CFG.roleModules[r].length;
-    roleHint.textContent = custom ? T().roleAssigned(r, mods.length) : T().roleAllModules(mods.length);
+    roleHint.textContent = custom ? T().roleAssigned(rankLabel(r), mods.length) : T().roleAllModules(mods.length);
   }
   var vSel=document.getElementById("fVessel"), vOther=document.getElementById("fVesselOther");
   vSel.onchange=function(){ vOther.style.display = vSel.value==="__other" ? "block" : "none"; if(vSel.value==="__other") vOther.focus(); };
@@ -3646,7 +3650,7 @@ function renderSummary(){
   var head = allPass ? '<span class="result-badge pass">'+t.allPass(passedCount,N)+'</span>'
                      : '<span class="result-badge fail">'+t.somePass(passedCount,N)+'</span>';
   var extra="";
-  if(state.rank) extra+=" · "+esc(state.rank);
+  if(state.rank) extra+=" · "+esc(rankLabel(state.rank));
   if(state.vessel) extra+=" · "+esc(state.vessel);
   if(state.sicil) extra+=" · "+T().recFields.sicil+": <b>"+esc(state.sicil)+"</b>";
 
@@ -3763,7 +3767,7 @@ function renderRecord(){
        '<div style="font-size:.8rem;color:var(--muted)">'+t.certSub+'</div></div>'+
        '<div class="rec-title">'+t.recTitle+'</div></div>'+
      '<div class="rec-kv">'+
-       kv(f.name,state.name)+kv(f.rank,state.rank)+kv(f.vessel,state.vessel)+kv(f.sicil,state.sicil)+
+       kv(f.name,state.name)+kv(f.rank,rankLabel(state.rank))+kv(f.vessel,state.vessel)+kv(f.sicil,state.sicil)+
        kv(f.lang, state.lang==="en"?"English":"Türkçe")+kv(f.passmark, CFG.passMark+" / 20")+
        kv(f.started, fmtDateTime(firstStart))+kv(f.ended, fmtDateTime(lastEnd))+
        kv(f.dur, fmtDur(totDur))+kv(f.ref, CFG.docRef)+
@@ -4324,7 +4328,7 @@ function renderSettings(){
     '<div style="padding:12px 0;border-bottom:1px solid var(--line)">'+
       '<label style="font-weight:600">'+t.setRoleModules+'<span class="hint">'+t.setRoleModulesHint+'</span></label>'+
       '<select id="sRoleSel" style="margin-top:6px">'+
-        ROLES.map(function(r){ var mk=(CFG.roleModules[r]&&CFG.roleModules[r].length)?" •":""; return '<option value="'+esc(r)+'">'+esc(r)+mk+'</option>'; }).join("")+
+        ROLES.map(function(r){ var mk=(CFG.roleModules[r]&&CFG.roleModules[r].length)?" •":""; return '<option value="'+esc(r)+'">'+esc(rankLabel(r))+mk+'</option>'; }).join("")+
       '</select>'+
       '<div class="modchecks" id="rmChecks"></div>'+
       '<div class="btnrow" style="margin-top:6px">'+
@@ -4460,7 +4464,7 @@ function recToCsv(recs){
   recs.forEach(function(r){
     var mods=(r.mods||[]).map(function(m){return m.code+":"+m.correct+(m.passed?"":"*");}).join(" ");
     lines.push([
-      r.ts, csv(r.name), csv(r.rank), csv(r.vessel), csv(r.sicil), r.lang,
+      r.ts, csv(r.name), csv(rankLabel(r.rank)), csv(r.vessel), csv(r.sicil), r.lang,
       r.moduleCount||(r.mods?r.mods.length:""), r.passedCount!=null?r.passedCount:"",
       r.allPass?"EVET":"HAYIR",
       r.total!=null?r.total:"", r.passMark||"", r.focusTotal!=null?r.focusTotal:"",
@@ -4744,7 +4748,7 @@ function renderAnalytics(wrap, liveRecs){
       '<th>'+(en?"Candidate":"Aday")+'</th><th>'+(en?"Vessel":"Gemi")+'</th><th>'+(en?"Module":"Modül")+'</th>'+
       '<th>'+(en?"Duration":"Süre")+'</th><th>'+(en?"Correct":"Doğru")+'</th><th></th></tr></thead><tbody>'+
       d.fast.map(function(f){
-        return '<tr><td>'+esc(f.name)+' <span style="color:var(--muted);font-size:.74rem">'+esc(f.rank)+'</span></td>'+
+        return '<tr><td>'+esc(f.name)+' <span style="color:var(--muted);font-size:.74rem">'+esc(rankLabel(f.rank))+'</span></td>'+
           '<td>'+esc(f.vessel)+'</td><td class="sc">'+esc(f.code)+'</td>'+
           '<td class="sc" style="color:var(--bad);font-weight:700">'+f.sec+' sn</td>'+
           '<td class="sc">'+f.correct+' / 20</td>'+
@@ -4762,7 +4766,7 @@ function renderAnalytics(wrap, liveRecs){
       '<th>'+(en?"Candidate":"Aday")+'</th><th>'+(en?"Vessel":"Gemi")+'</th>'+
       '<th>'+(en?"Failed":"Kalınan")+'</th><th>'+(en?"Modules":"Modüller")+'</th></tr></thead><tbody>'+
       d.weak.map(function(w){
-        return '<tr><td>'+esc(w.name)+' <span style="color:var(--muted);font-size:.74rem">'+esc(w.rank)+'</span></td>'+
+        return '<tr><td>'+esc(w.name)+' <span style="color:var(--muted);font-size:.74rem">'+esc(rankLabel(w.rank))+'</span></td>'+
           '<td>'+esc(w.vessel)+'</td><td class="sc" style="color:var(--bad);font-weight:700">'+w.fails+'</td>'+
           '<td style="font-size:.78rem">'+esc(w.codes.join(", "))+'</td></tr>';
       }).join("")+'</tbody></table></div>';
@@ -4787,7 +4791,7 @@ function buildVesselAuditReport(vessel, people){
     var ok = ow.required>0 && ow.missing.length===0;
     return '<tr>'+
       '<td class="n">'+esc(x.u.display_name||"")+'</td>'+
-      '<td>'+esc(x.u.rank||"—")+'</td>'+
+      '<td>'+esc(rankLabel(x.u.rank)||"—")+'</td>'+
       '<td>'+esc(x.u.sicil||"—")+'</td>'+
       '<td class="c">'+(ow.required? (ow.done+" / "+ow.required) : "—")+'</td>'+
       '<td class="miss">'+(ow.missing.length? esc(ow.missing.join(", ")) : '<span class="ok">'+(en?"none":"yok")+'</span>')+'</td>'+
@@ -4843,7 +4847,7 @@ function buildVesselAuditReport(vessel, people){
 }
 /* ---- D5: panelden Eğitim Matrisi (TR/EN) — kendi kendine yeten HTML, Yazdır → PDF ---- */
 var MATRIX_RANKS = ["Master","Chf Off","2nd Off","3rd Off","4th Off","Deck Cad","Chf Eng","2nd Eng","3rd Eng","4th Eng","Eng Cad","ETO","Bosun","AB","OS","Oiler","Wiper","Fitter","Cook","Stwrd"];
-var MATRIX_RANK_LABEL = {"Chf Off":"Chief Officer","Deck Cad":"Deck Cadet","Chf Eng":"Chief Eng","Eng Cad":"Eng Cadet","Stwrd":"Steward"};
+/* Matris basliklari da ayni tam adlari kullanir (bkz. RANK_LABEL). */
 function buildMatrixHtml(lc){
   var en = lc==="en";
   var bcT=byCode("tr"), bcE=byCode("en");
@@ -4858,7 +4862,7 @@ function buildMatrixHtml(lc){
                  g1:"EĞİTİM SUNUMLARI (01–33)", g2:"VİDEO EĞİTİMLERİ (34–44)", code:"Kod", mod:"MODÜL", tot:"Toplam modül", vid:"bunun videosu",
                  note:"Sınav sisteminde tanımlı göreve-göre atamaların birebir dökümüdür. Kara ofisi görevleri listelenmez; onlar tüm modülleri görür.", print:"Yazdır / PDF olarak kaydet"};
   var has=function(r,c){ return modulesForRole(r).indexOf(c)>=0; };
-  var head='<tr><th class="k">'+TT.code+'</th><th class="n">'+TT.mod+'</th>'+ranks.map(function(r){ return '<th class="r">'+esc(MATRIX_RANK_LABEL[r]||r)+'</th>'; }).join("")+'</tr>';
+  var head='<tr><th class="k">'+TT.code+'</th><th class="n">'+TT.mod+'</th>'+ranks.map(function(r){ return '<th class="r">'+esc(rankLabel(r))+'</th>'; }).join("")+'</tr>';
   var body="";
   [[TT.g1, codes.filter(function(c){return c<="33";})],[TT.g2, codes.filter(function(c){return c>="34";})]].forEach(function(g){
     body+='<tr class="g"><td colspan="'+(2+ranks.length)+'">'+esc(g[0])+'</td></tr>';
@@ -4873,7 +4877,7 @@ function buildMatrixHtml(lc){
   return '<!doctype html><html lang="'+lc+'"><head><meta charset="utf-8"><title>'+esc(TT.t2)+'</title><style>'+
     '@page{size:A4 landscape;margin:8mm}body{font-family:Arial,Helvetica,sans-serif;margin:8mm;color:#111}h1{font-size:15px;text-align:center;margin:0}h2{font-size:13px;text-align:center;margin:2px 0 4px}'+
     '.sub{font-size:8.5px;text-align:center;color:#555;margin-bottom:6px}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #9aa3af;padding:2px 3px;font-size:8px;vertical-align:middle}'+
-    'th{background:#f3f4f6;font-weight:700}th.r{writing-mode:vertical-rl;transform:rotate(180deg);height:58px;font-size:7.5px}th.k,td.k{width:22px;text-align:center}th.n,td.n{width:190px;text-align:left}'+
+    'th{background:#f3f4f6;font-weight:700}th.r{writing-mode:vertical-rl;transform:rotate(180deg);height:76px;font-size:7.5px}th.k,td.k{width:22px;text-align:center}th.n,td.n{width:190px;text-align:left}'+
     'td.c{text-align:center}td.c.on{background:#1E5AA8}tr.g td{background:#e8eef7;font-weight:700;font-size:8.5px}tr.t td{background:#f3f4f6;font-weight:700;text-align:center}tr.t td:first-child{text-align:left}tr.v td{font-weight:400;color:#555}'+
     '.s{color:#666;font-size:7px}.note{font-size:8px;color:#444;margin-top:6px}.bar{margin-bottom:8px}.bar button{padding:6px 12px}@media print{.bar{display:none}}</style></head><body>'+
     '<div class="bar"><button onclick="window.print()">🖨 '+esc(TT.print)+'</button></div>'+
@@ -4885,7 +4889,7 @@ function expiryRows(liveRecs, maxDays){
   var out=[];
   (liveRecs||[]).forEach(function(r){
     var e=certExpiryInfo(r); if(!e) return;
-    if(e.daysLeft<= (maxDays||90)) out.push({ name:r.name||"", rank:r.rank||"", vessel:r.vessel||"", sicil:r.sicil||"", issued:(r.finishedAt||r.ts||""), valid:ymd(e.val), daysLeft:e.daysLeft, certNo:r.certNo||"" });
+    if(e.daysLeft<= (maxDays||90)) out.push({ name:r.name||"", rank:rankLabel(r.rank), vessel:r.vessel||"", sicil:r.sicil||"", issued:(r.finishedAt||r.ts||""), valid:ymd(e.val), daysLeft:e.daysLeft, certNo:r.certNo||"" });
   });
   out.sort(function(a,b){ return a.daysLeft-b.daysLeft; });
   return out;
@@ -4943,7 +4947,7 @@ function buildAuditSummaryReport(candidateRows, liveRecs){
   var expRows=expList.map(function(x){
     var status = x.e.daysLeft<0 ? '<span style="color:#a92a25;font-weight:700">Süresi doldu</span>'
       : '<span style="color:#8a6400;font-weight:700">'+x.e.daysLeft+' gün kaldı</span>';
-    return '<tr><td>'+esc(x.r.name||"—")+'</td><td>'+esc([x.r.rank,x.r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
+    return '<tr><td>'+esc(x.r.name||"—")+'</td><td>'+esc([rankLabel(x.r.rank),x.r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
       '<td class="c">'+ymd(x.e.val).replace(/(\d{4})(\d{2})(\d{2})/,"$3.$2.$1")+'</td><td class="c">'+status+'</td></tr>';
   }).join("");
   return '<!doctype html><html lang="tr"><head><meta charset="utf-8">'+
@@ -4993,7 +4997,7 @@ function buildCrewHtmlReport(vessel, people, base){
     return '<tr>'+
       '<td class="c">'+(i+1)+'</td>'+
       '<td>'+esc(p.name)+'</td>'+
-      '<td>'+esc(p.rank||p.rankRaw||"—")+'</td>'+
+      '<td>'+esc(rankLabel(p.rank)||p.rankRaw||"—")+'</td>'+
       '<td class="c">'+esc(p.sicil||"—")+'</td>'+
       '<td class="c" style="font-family:Consolas,monospace">'+esc(p.username||"—")+'</td>'+
       '<td class="c" style="font-family:Consolas,monospace">'+esc(p.password||"—")+'</td>'+
@@ -5188,7 +5192,7 @@ function renderAdmin(){
       '<td>'+admFmtDate(r.ts)+expBadge(r)+'</td>'+
       '<td>'+esc(r.name||"—")+'</td>'+
       '<td>'+esc(r.sicil||"—")+'</td>'+
-      '<td>'+esc([r.rank,r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
+      '<td>'+esc([rankLabel(r.rank),r.vessel].filter(Boolean).join(" · ")||"—")+'</td>'+
       '<td class="sc">'+(r.passedCount!=null?r.passedCount:"—")+' / '+(r.moduleCount||(r.mods&&r.mods.length)||"?")+'</td>'+
       '<td class="mods-td">'+passedModsCell(r)+'</td>'+
       '<td class="sc">'+(r.total!=null?r.total:"—")+'</td>'+
@@ -5377,7 +5381,7 @@ function renderAdmin(){
         '<div><label class="fld" for="auName">Görünen ad</label><input type="text" id="auName" placeholder="Örn. Taner Akciğer" value="'+esc(usersDraft.name)+'"></div>'+
         '<div><label class="fld" for="auUser">Kullanıcı adı</label><input type="text" id="auUser" autocapitalize="off" value="'+esc(usersDraft.user)+'"'+(usersDraft.editing?' readonly style="opacity:.6"':'')+'></div>'+
         '<div><label class="fld" for="auRank">Görev</label><select id="auRank"><option value="">— Görev seçiniz —</option>'+
-          ROLES.map(function(r){ return '<option value="'+esc(r)+'"'+(r===usersDraft.rank?" selected":"")+'>'+esc(r)+'</option>'; }).join("")+
+          ROLES.map(function(r){ return '<option value="'+esc(r)+'"'+(r===usersDraft.rank?" selected":"")+'>'+esc(rankLabel(r))+'</option>'; }).join("")+
         '</select><div style="font-size:.72rem;color:var(--muted);margin-top:3px">Sınav/sunum ekranında ad ve görev otomatik dolar; gemi ve seaman\'s book sorulmaz.</div></div>'+
         '<div><label class="fld" for="auPass">'+(usersDraft.editing?'Yeni şifre (isteğe bağlı)':'Şifre')+'</label><input type="password" id="auPass" value="'+esc(usersDraft.pass)+'"></div>'+
       '</div>'+
@@ -5682,7 +5686,7 @@ function renderAdmin(){
             if(!ow.missing.length) return "";
             return ' <span style="font-size:.66rem;font-weight:700;padding:1px 6px;border-radius:99px;background:var(--warn-bg);color:var(--warn);white-space:nowrap">🆕 '+t.newJoiner+' · '+days+'g</span>';
           })();
-          return '<tr><td>'+esc(x.u.display_name||"")+njBadge+'</td><td>'+esc(x.u.rank||"—")+'</td><td>'+pill(x.st)+'</td>'+
+          return '<tr><td>'+esc(x.u.display_name||"")+njBadge+'</td><td>'+esc(rankLabel(x.u.rank)||"—")+'</td><td>'+pill(x.st)+'</td>'+
             '<td class="sc">'+(rec?(fin+" / "+tot):"—")+'</td><td>'+owedCell+'</td><td>'+(last?admFmtDate(last):"—")+'</td>'+
             '<td>'+(rec?'<button class="btn sm ghost fleet-open" data-aid="'+esc(rec.attemptId)+'">'+(lang==="en"?"Open":"Aç")+'</button>':'')+'</td></tr>';
         }).join("");
@@ -5904,7 +5908,7 @@ function renderAdmin(){
       var rowsHtml=people.map(function(p,i){
         var link=crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon);
         var rankOpts='<option value="">'+esc(t.crewUnmatched)+'</option>'+ROLES.map(function(r){
-          return '<option value="'+esc(r)+'"'+(r===p.rank?" selected":"")+'>'+esc(r)+'</option>';
+          return '<option value="'+esc(r)+'"'+(r===p.rank?" selected":"")+'>'+esc(rankLabel(r))+'</option>';
         }).join("");
         return '<tr>'+
           '<td>'+esc(p.name)+'</td>'+
@@ -5996,7 +6000,7 @@ function renderAdmin(){
       });
       var copyAllBtn=document.getElementById("crewCopyAll");
       if(copyAllBtn) copyAllBtn.onclick=function(){
-        var lines=people.map(function(p){ return p.name+"\t"+p.rank+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon); });
+        var lines=people.map(function(p){ return p.name+"\t"+rankLabel(p.rank)+"\t"+crewLinkFor(base, p.name, p.rank, vessel, p.sicil, p.attemptId, p.signon); });
         copyText(lines.join("\n"), copyAllBtn);
       };
       var dlBtn=document.getElementById("crewDlCsv");
@@ -6004,7 +6008,7 @@ function renderAdmin(){
         var csvEsc=function(s){ s=String(s==null?"":s); return /[",\n]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s; };
         var lines=["Ad Soyad,Rütbe,Seaman's Book No,Kullanıcı Adı,Şifre,Link"];
         people.forEach(function(p){
-          lines.push([p.name,p.rank,p.sicil,p.username,p.password,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId,p.signon)].map(csvEsc).join(","));
+          lines.push([p.name,rankLabel(p.rank),p.sicil,p.username,p.password,crewLinkFor(base,p.name,p.rank,vessel,p.sicil,p.attemptId,p.signon)].map(csvEsc).join(","));
         });
         download((vessel||"crew")+" - sinav linkleri.csv", lines.join("\r\n"), "text/csv;charset=utf-8");
       };
@@ -6106,7 +6110,7 @@ function renderAdmin(){
         if(!rows.length){ listEl.innerHTML='<div class="note">Henüz kullanıcı yok.</div>'; return; }
         listEl.innerHTML='<div style="display:flex;flex-direction:column;gap:6px">'+rows.map(function(u){
           return '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--line);border-radius:8px">'+
-            '<b style="flex:1">'+esc(u.display_name)+(u.rank?' <span style="font-weight:500;color:var(--muted);font-size:.8rem">· '+esc(u.rank)+'</span>':'')+'</b>'+
+            '<b style="flex:1">'+esc(u.display_name)+(u.rank?' <span style="font-weight:500;color:var(--muted);font-size:.8rem">· '+esc(rankLabel(u.rank))+'</span>':'')+'</b>'+
             '<span style="color:var(--muted);font-family:var(--font-mono);font-size:.8rem">'+esc(u.username)+'</span>'+
             '<button class="btn sm ghost auEdit" data-u="'+esc(u.username)+'" data-n="'+esc(u.display_name)+'" data-r="'+esc(u.rank||"")+'">✏️ Düzenle</button>'+
             '<button class="btn sm ghost auDel" data-u="'+esc(u.username)+'" style="border-color:var(--bad);color:var(--bad)">Sil</button></div>';
@@ -6273,8 +6277,8 @@ function renderAdminDetail(rec){
       '<div class="editgrid">'+
         '<div><label class="fld">'+t.recFields.name+'</label><input type="text" id="edN" value="'+esc(rec.name||"")+'"></div>'+
         '<div><label class="fld">'+t.rankLbl+'</label><select id="edR"><option value="">—</option>'+
-          ROLES.map(function(x){return '<option'+(x===rec.rank?" selected":"")+'>'+esc(x)+'</option>';}).join("")+
-          (rec.rank && ROLES.indexOf(rec.rank)<0 ? '<option selected>'+esc(rec.rank)+'</option>':'')+'</select></div>'+
+          ROLES.map(function(x){return '<option value="'+esc(x)+'"'+(x===rec.rank?" selected":"")+'>'+esc(rankLabel(x))+'</option>';}).join("")+
+          (rec.rank && ROLES.indexOf(rec.rank)<0 ? '<option value="'+esc(rec.rank)+'" selected>'+esc(rankLabel(rec.rank))+'</option>':'')+'</select></div>'+
         '<div><label class="fld">'+t.vesselLbl+'</label><select id="edV"><option value="">—</option>'+
           CFG.vessels.map(function(x){return '<option'+(x===rec.vessel?" selected":"")+'>'+esc(x)+'</option>';}).join("")+
           (rec.vessel && CFG.vessels.indexOf(rec.vessel)<0 ? '<option selected>'+esc(rec.vessel)+'</option>':'')+'</select></div>'+
@@ -6319,7 +6323,7 @@ function renderRecordFromRec(rec){
        '<div style="font-size:.8rem;color:var(--muted)">'+t.certSub+'</div></div>'+
        '<div class="rec-title">'+t.recTitle+'</div></div>'+
      '<div class="rec-kv">'+
-       kv(f.name,rec.name)+kv(f.rank,rec.rank)+kv(f.vessel,rec.vessel)+kv(f.sicil,rec.sicil)+
+       kv(f.name,rec.name)+kv(f.rank,rankLabel(rec.rank))+kv(f.vessel,rec.vessel)+kv(f.sicil,rec.sicil)+
        kv(f.lang, rec.lang==="en"?"English":"Türkçe")+kv(f.passmark,(rec.passMark||CFG.passMark)+" / 20")+
        kv(f.started, admFmtDate(rec.startedAt))+kv(f.ended, admFmtDate(rec.finishedAt))+
        kv(f.dur, admDur(rec.durationMs))+kv(f.ref, rec.docRef||CFG.docRef)+
