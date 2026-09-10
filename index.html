@@ -504,6 +504,7 @@
       <div class="menuwrap">
         <button class="iconbtn" id="menuBtn" title="Menü" aria-label="Menü" aria-haspopup="true" aria-expanded="false">☰</button>
         <div class="menudrop" id="menuDrop" style="display:none" role="menu">
+          <button id="menuUpdate" role="menuitem"></button>
           <button id="menuDark" role="menuitem"></button>
           <button id="menuPass" role="menuitem" style="display:none"></button>
           <button id="menuLogout" role="menuitem"></button>
@@ -542,7 +543,7 @@ var DATA = {
   en: JSON.parse(_deob(document.getElementById("qdata-en").textContent))
 };
 var Q_PER = 20;
-var BUILD_STAMP = "v59 · 2026-09-10 10:04";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
+var BUILD_STAMP = "v59 · 2026-09-10 10:43";   /* build.py doldurur: "v52 · 2026-09-07 18:40" — altbilgide görünür */
 var LS_STATE = "gsm_exam_state_v3", LS_CFG = "gsm_exam_cfg_v9", LS_LOG = "gsm_exam_log_v1", LS_LANG = "gsm_exam_lang", LS_ADMIN = "gsm_admin_v1";
 var adminUnlocked = false, adminSearch = "", adminFilter = "all", adminSel = {};
 /* Crew List → Linkler kutusunun durumu renderAdmin() dışında tutulur: bulut otomatik yenilemesi
@@ -2555,6 +2556,13 @@ applyTheme();
     var pw=document.getElementById("menuPass");
     var canPass = !!candSessionUser() || (isAdminAuthed() && !!(function(){ try{ return localStorage.getItem(LS_ADMIN_USER); }catch(e){ return ""; } })());
     if(pw){ pw.style.display = canPass ? "block" : "none"; pw.textContent = lang==="en" ? "🔑 Change my password" : "🔑 Şifremi değiştir"; }
+    /* Guncelleme maddesi her ekranda, her zaman durur: gemide "Ctrl+F5 yap" demek yerine
+       tek tikla en son surume gecilebilsin diye. Uzerine gelince hangi surumde oldugu yazar. */
+    var up=document.getElementById("menuUpdate");
+    if(up){
+      up.textContent = lang==="en" ? "🔄 Update the app" : "🔄 Uygulamayı güncelle";
+      up.title = BUILD_STAMP;
+    }
     applyTheme();
     mDrop.style.display="block"; mBtn.setAttribute("aria-expanded","true");
     var r=mBtn.getBoundingClientRect();
@@ -2564,6 +2572,7 @@ applyTheme();
   }
   mBtn.onclick=function(ev){ ev.stopPropagation(); if(mDrop.style.display==="none") openMenu(); else closeMenu(); };
   document.addEventListener("click", function(ev){ if(!mDrop.contains(ev.target) && ev.target!==mBtn) closeMenu(); });
+  document.getElementById("menuUpdate").onclick=function(){ closeMenu(); updateAppNow(); };
   document.getElementById("menuDark").onclick=function(){ toggleTheme(); };
   document.getElementById("menuPass").onclick=function(){ closeMenu(); renderChangePasswordModal(); };
   document.getElementById("menuLogout").onclick=function(){
@@ -6394,6 +6403,46 @@ applyChrome();
 var SS_VER_RELOAD = "gsm_ver_reload_v1";
 /* Önbelleği kesin atlatan yenileme: URL'e her seferinde farklı bir _v eklenir, böylece
    tarayıcı dosyayı önbellekten değil sunucudan alır. Sınav parametreleri (aid/name/...) korunur. */
+/* Yerel yonetici dosyasi (file://) kendi yaninda version.json bulamaz; yayinlanan surumu
+   mutlak adresten okur. GitHub Pages "Access-Control-Allow-Origin: *" gonderdigi icin bu
+   istek dosyadan da calisir. */
+var VERSION_URL = "https://inkaacademy.github.io/version.json";
+function fetchLatestStamp(cb){
+  var url = (location.protocol==="file:") ? VERSION_URL : "version.json";
+  try{
+    fetch(url+"?t="+Date.now(), {cache:"no-store"})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(v){ cb(v && v.stamp ? v.stamp : null); })
+      .catch(function(){ cb(null); });
+  }catch(e){ cb(null); }
+}
+/* Menudeki "Uygulamayı güncelle". Web surumunde: onbellegi atlayan bir yeniden yukleme
+   (adrese _v damgasi eklenir) — kullanicinin uygulamadan cikip tekrar girmesine gerek kalmaz.
+   Yerel yonetici dosyasinda yeniden yukleme ayni eski dosyayi getirecegi icin bunun yerine
+   surum karsilastirilir ve masaustundeki guncel dosyayi acmasi soylenir. */
+function updateAppNow(){
+  var en=(lang==="en");
+  if(location.protocol==="file:"){
+    toast(en?"Checking…":"Kontrol ediliyor…","ok");
+    fetchLatestStamp(function(stamp){
+      if(!stamp){ toast(en?"Could not reach the server — no internet?":"Sunucuya ulaşılamadı — internet yok mu?","bad",true); return; }
+      if(stamp===BUILD_STAMP){ toast(en?"You already have the latest version.":"Zaten en son sürümdesiniz.","ok"); return; }
+      toast('<b>'+(en?"A newer version exists":"Daha yeni bir sürüm var")+'</b><br>'+
+            (en?"This file: ":"Bu dosya: ")+esc(BUILD_STAMP)+'<br>'+(en?"Latest: ":"En son: ")+esc(stamp)+'<br>'+
+            (en?"Close this file and open the administrator file again from the sınav folder on your Desktop."
+              : "Bu dosyayı kapatıp Masaüstü\\sınav klasöründeki yönetici dosyasını yeniden açın."),"warn",true);
+    });
+    return;
+  }
+  if(typeof state!=="undefined" && state && (state.phase==="module" || state.phase==="deck")){
+    if(!confirm(en?"You are in the middle of a module. Reload now? Your answers are saved."
+                  :"Şu an bir modülün içindesiniz. Yine de yenilensin mi? Cevaplarınız kayıtlı.")) return;
+  }
+  try{ sessionStorage.removeItem(SS_VER_RELOAD); }catch(e){}
+  var b=document.getElementById("updBanner");
+  if(b){ b.remove(); try{ document.body.style.paddingTop=""; }catch(e){} }
+  hardReloadApp();
+}
 function hardReloadApp(){
   try{
     var u=new URL(location.href);
@@ -6411,11 +6460,20 @@ function showUpdateBanner(){
     '<button id="updNow">🔄 '+(en?"Update now":"Şimdi güncelle")+'</button>'+
     '<button id="updLater">'+(en?"Later":"Sonra")+'</button>';
   document.body.appendChild(d);
+  /* Cubuk sabit konumludur: sayfa yukaridan bosluk almazsa basligin (logo, TR/EN, menu)
+     uzerine biner ve o dugmeler tiklanamaz olur. Yuksekligi olculup govdeye kadar bosluk
+     verilir; dar ekranda cubuk iki satira sarabildigi icin ekran boyu degisince yenilenir. */
+  var shift=function(){ try{ document.body.style.paddingTop=d.offsetHeight+"px"; }catch(e){} };
+  var closeBanner=function(){
+    try{ d.remove(); document.body.style.paddingTop=""; }catch(e){}
+    window.removeEventListener("resize", shift);
+  };
+  shift(); window.addEventListener("resize", shift);
   document.getElementById("updNow").onclick=function(){
     this.disabled=true; this.textContent=en?"Updating…":"Güncelleniyor…";
     hardReloadApp();
   };
-  document.getElementById("updLater").onclick=function(){ d.remove(); };
+  document.getElementById("updLater").onclick=closeBanner;
 }
 /* auto=true (açılışta): eski sürümse kullanıcıyı hiç uğraştırmadan tek sefer kendini tazeler.
    auto=false (periyodik kontrol): sayfa açıkken yeni sürüm çıkarsa üstte güncelleme çubuğu
@@ -6442,6 +6500,14 @@ pullCloudSettings();
 checkAppVersion(true);
 /* Sayfa uzun süre açık kalırsa (gemide sık oluyor) yeni sürümü 10 dakikada bir kontrol et. */
 setInterval(function(){ checkAppVersion(false); }, 600000);
+/* Panel gun boyu acik kalip arka planda bekliyorsa 10 dakikalik tur gec kalabiliyor.
+   Kullanici sekmeye geri dondugunde de bakilir (en fazla dakikada bir, gereksiz istek olmasin). */
+var lastVisCheck=0;
+document.addEventListener("visibilitychange", function(){
+  if(document.hidden) return;
+  var now=Date.now(); if(now-lastVisCheck < 60000) return; lastVisCheck=now;
+  checkAppVersion(false);
+});
 try{ console.log("İNKA Akademi build", BUILD_STAMP); }catch(e){}
 (function(){ var b=document.getElementById("cloudSyncBadge"); if(b) b.onclick=showSyncDetail; })();   /* D3 */
 /* Bekleyen ya da hiç doğrulanmamış bir bulut yazması varken, aday ekranı değiştirmese bile (ör. bitiş
